@@ -1,0 +1,154 @@
+h3 {
+    font-size: 1rem;
+    margin: 1.25rem 0 0.25rem;
+}
+
+.file {
+    padding: 0.85rem 1rem;
+}
+
+/* A file that split cleanly needs no emphasis; one that did not gets a warm edge. */
+.file.attention {
+    border-color: var(--po-warn-border);
+}
+
+.file-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.85rem;
+}
+
+.disclosure {
+    flex: 1 1 14rem;
+    justify-content: flex-start;
+    min-width: 0;
+    padding: 0.35rem 0.5rem;
+    border-color: transparent;
+    background: transparent;
+    text-align: left;
+}
+
+.chevron {
+    color: var(--po-text-muted);
+    width: 1ch;
+}
+
+.file-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.badge {
+    padding: 0.15rem 0.55rem;
+    border: 1px solid var(--po-border);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-ok {
+    border-color: var(--po-accent);
+    color: var(--po-accent);
+}
+
+.badge-warn {
+    border-color: var(--po-warn-border);
+    background: var(--po-warn-bg);
+    color: var(--po-warn-text);
+}
+
+.badge-error {
+    border-color: var(--po-danger);
+    color: var(--po-danger);
+}
+
+.badge-busy {
+    color: var(--po-text-muted);
+}
+
+.file-body {
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--po-border);
+}
+
+.wave {
+    display: block;
+    width: 100%;
+    height: 140px;
+    border-radius: var(--po-radius);
+    overflow: hidden;
+}
+
+.wave-bg {
+    fill: var(--po-panel-alt);
+}
+
+.wave-keep {
+    fill: var(--po-wave-keep);
+    opacity: 0.18;
+}
+
+.wave-line {
+    stroke: var(--po-wave);
+    stroke-width: 1;
+    fill: none;
+}
+
+.clips {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.clips li {
+    display: grid;
+    grid-template-columns: 2rem minmax(9rem, 1fr) minmax(12rem, 2fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--po-border);
+    border-radius: var(--po-radius);
+    background: var(--po-panel-alt);
+}
+
+.clip-index {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--po-accent);
+    color: var(--po-accent-text);
+    font-weight: 700;
+}
+
+.clip-times {
+    display: flex;
+    flex-direction: column;
+    font-variant-numeric: tabular-nums;
+}
+
+.clips audio {
+    width: 100%;
+    max-width: 22rem;
+    height: 2.25rem;
+}
+
+@media (max-width: 720px) {
+    .clips li {
+        grid-template-columns: 2rem 1fr;
+    }
+
+    .clips audio,
+    .clips .button {
+        grid-column: 1 / -1;
+    }
+}

@@ -1,0 +1,14 @@
+h1 {
+    font-size: 1.6rem;
+    margin-bottom: 1.25rem;
+}
+
+h2 {
+    font-size: 1.15rem;
+}
+
+.picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}

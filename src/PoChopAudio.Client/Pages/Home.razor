@@ -1,0 +1,329 @@
+@page "/"
+@inject HttpClient Http
+
+<PageTitle>PoChopAudio</PageTitle>
+
+<h1>Chop recordings into takes</h1>
+
+<section class="card">
+    <label class="picker">
+        <InputFile OnChange="OnFilesSelectedAsync" multiple
+                   accept=".wav,.mp3,.aiff,.aif,.m4a,.aac,.wma" disabled="@_busy" />
+        <span class="hint">
+            Pick one or more recordings — each is split on its own, up to @ChopLimits.MaxBatchFiles at a time.
+        </span>
+    </label>
+
+    @if (_busy)
+    {
+        <p class="status" role="status">@_status</p>
+    }
+
+    @if (_error is not null)
+    {
+        <p class="error" role="alert">@_error</p>
+    }
+</section>
+
+@if (_files.Count > 0)
+{
+    <section class="card">
+        <header class="card-head">
+            <h2>Batch settings</h2>
+            <span class="meta">@Summary</span>
+        </header>
+
+        <p class="hint">These apply to every file that has not been tuned on its own.</p>
+
+        <ChopKnobs Settings="_shared" Disabled="@_busy" Changed="StateHasChanged" />
+
+        <div class="actions">
+            <button type="button" class="primary" @onclick="ResplitAllAsync" disabled="@_busy">
+                Re-split all
+            </button>
+            <button type="button" @onclick="ResetSharedAsync" disabled="@_busy">Reset settings</button>
+            @if (ReadyFiles.Count > 0)
+            {
+                <a class="button primary" href="@BatchZipUrl">
+                    Download all @TotalClips clips as ZIP
+                </a>
+            }
+            <button type="button" @onclick="ClearAsync" disabled="@_busy">Clear</button>
+        </div>
+
+        @if (AttentionCount > 0)
+        {
+            <p class="warn" role="alert">
+                @AttentionCount of @_files.Count file(s) did not split cleanly. They are flagged below and
+                still included in the ZIP — open one to re-tune it on its own.
+            </p>
+        }
+    </section>
+
+    @foreach (var file in _files)
+    {
+        <ChopFileCard @key="file"
+                      File="file"
+                      Busy="@_busy"
+                      Resplit="ResplitOneAsync"
+                      FollowBatch="FollowBatchAsync" />
+    }
+}
+
+@code {
+    private readonly List<ChopFileState> _files = [];
+
+    private ChopSettings _shared = ChopSettings.Defaults();
+
+    private bool _busy;
+    private string _status = string.Empty;
+    private string? _error;
+
+    private IReadOnlyList<ChopFileState> ReadyFiles => [.. _files.Where(f => f.IsReady)];
+
+    private int TotalClips => _files.Sum(f => f.Segments.Count);
+
+    private int AttentionCount => _files.Count(f => f.NeedsAttention);
+
+    private string Summary =>
+        $"{_files.Count} file(s) · {TotalClips} clip(s) · {_files.Count(f => f.UsesOwnSettings)} tuned individually";
+
+    private string BatchZipUrl =>
+        "api/chop/clips.zip?" + string.Join('&', ReadyFiles.Select(f => $"jobs={f.Upload!.JobId}"));
+
+    private async Task OnFilesSelectedAsync(InputFileChangeEventArgs args)
+    {
+        _error = null;
+
+        IReadOnlyList<IBrowserFile> picked;
+        try
+        {
+            picked = args.GetMultipleFiles(ChopLimits.MaxBatchFiles);
+        }
+        catch (InvalidOperationException)
+        {
+            _error = $"Pick at most {ChopLimits.MaxBatchFiles} files at a time.";
+            return;
+        }
+
+        if (picked.Count == 0)
+        {
+            return;
+        }
+
+        await DiscardJobsAsync();
+        _files.Clear();
+
+        foreach (var file in picked)
+        {
+            _files.Add(new ChopFileState
+            {
+                FileName = file.Name,
+                SizeBytes = file.Size,
+                Settings = _shared.Clone(),
+                // A single file opens straight to its clips; a batch stays collapsed until asked.
+                Expanded = picked.Count == 1,
+            });
+        }
+
+        _busy = true;
+
+        try
+        {
+            // Sequential on purpose: each file is buffered whole before it is posted, and the server
+            // decodes on a worker thread. Uploading three 250 MB files at once helps nobody.
+            for (var i = 0; i < picked.Count; i++)
+            {
+                _status = $"Decoding {picked[i].Name} ({i + 1} of {picked.Count})…";
+                StateHasChanged();
+
+                await UploadAsync(picked[i], _files[i]);
+
+                if (_files[i].Status is not ChopFileStatus.Failed)
+                {
+                    _status = $"Finding takes in {picked[i].Name} ({i + 1} of {picked.Count})…";
+                    StateHasChanged();
+                    await AnalyzeAsync(_files[i]);
+                }
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task UploadAsync(IBrowserFile source, ChopFileState file)
+    {
+        if (source.Size > ChopLimits.MaxUploadBytes)
+        {
+            Fail(file, $"Larger than the {ChopLimits.MaxUploadBytes / (1024 * 1024)} MB limit.");
+            return;
+        }
+
+        file.Status = ChopFileStatus.Uploading;
+
+        try
+        {
+            using var buffer = new MemoryStream();
+            await using (var stream = source.OpenReadStream(ChopLimits.MaxUploadBytes))
+            {
+                await stream.CopyToAsync(buffer);
+            }
+
+            buffer.Position = 0;
+
+            using var content = new MultipartFormDataContent
+            {
+                { new StreamContent(buffer), "file", source.Name },
+            };
+
+            using var response = await Http.PostAsync("api/chop/upload", content);
+            if (!response.IsSuccessStatusCode)
+            {
+                Fail(file, await DescribeFailureAsync(response));
+                return;
+            }
+
+            file.Upload = await response.Content.ReadFromJsonAsync<UploadResult>();
+        }
+        catch (Exception exception)
+        {
+            Fail(file, $"Upload failed: {exception.Message}");
+        }
+    }
+
+    private async Task AnalyzeAsync(ChopFileState file)
+    {
+        if (file.Upload is not { } upload)
+        {
+            return;
+        }
+
+        file.Status = ChopFileStatus.Splitting;
+        file.Error = null;
+
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"api/chop/{upload.JobId}/analyze",
+                file.Settings.ToOptions());
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Fail(file, await DescribeFailureAsync(response));
+                return;
+            }
+
+            file.Analysis = await response.Content.ReadFromJsonAsync<AnalysisResult>();
+            file.Version++;
+            file.Status = ChopFileStatus.Ready;
+        }
+        catch (Exception exception)
+        {
+            Fail(file, $"Could not split the recording: {exception.Message}");
+        }
+    }
+
+    private async Task ResplitOneAsync(ChopFileState file)
+    {
+        _busy = true;
+        _status = $"Re-splitting {file.FileName}…";
+
+        try
+        {
+            await AnalyzeAsync(file);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ResplitAllAsync()
+    {
+        // Files tuned on their own keep what the user gave them.
+        var targets = _files.Where(f => !f.UsesOwnSettings && f.Upload is not null).ToArray();
+
+        _busy = true;
+
+        try
+        {
+            for (var i = 0; i < targets.Length; i++)
+            {
+                targets[i].Settings = _shared.Clone();
+                _status = $"Re-splitting {targets[i].FileName} ({i + 1} of {targets.Length})…";
+                StateHasChanged();
+                await AnalyzeAsync(targets[i]);
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task FollowBatchAsync(ChopFileState file)
+    {
+        file.UsesOwnSettings = false;
+        file.Settings = _shared.Clone();
+        await ResplitOneAsync(file);
+    }
+
+    private async Task ResetSharedAsync()
+    {
+        _shared = ChopSettings.Defaults();
+        await ResplitAllAsync();
+    }
+
+    private async Task ClearAsync()
+    {
+        await DiscardJobsAsync();
+        _files.Clear();
+        _error = null;
+    }
+
+    /// <summary>Frees the server's temp copies instead of waiting for them to expire.</summary>
+    private async Task DiscardJobsAsync()
+    {
+        foreach (var file in _files.Where(f => f.Upload is not null))
+        {
+            try
+            {
+                using var response = await Http.DeleteAsync($"api/chop/{file.Upload!.JobId}");
+            }
+            catch (HttpRequestException)
+            {
+                // The job expires on its own; losing the race is not worth reporting.
+            }
+        }
+    }
+
+    private static void Fail(ChopFileState file, string message)
+    {
+        file.Status = ChopFileStatus.Failed;
+        file.Error = message;
+    }
+
+    private static async Task<string> DescribeFailureAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+
+        try
+        {
+            using var problem = System.Text.Json.JsonDocument.Parse(body);
+            foreach (var property in new[] { "detail", "title" })
+            {
+                if (problem.RootElement.TryGetProperty(property, out var value) && value.GetString() is { } text)
+                {
+                    return text;
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+
+        return string.IsNullOrWhiteSpace(body) ? $"The server returned {(int)response.StatusCode}." : body;
+    }
+}

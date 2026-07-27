@@ -1,0 +1,208 @@
+/* Design tokens. Every component reads its colours and spacing from here. */
+:root {
+    color-scheme: light dark;
+
+    --po-surface: #f6f7f9;
+    --po-panel: #ffffff;
+    --po-panel-alt: #f0f2f5;
+    --po-border: #d8dce3;
+    --po-text: #16191f;
+    --po-text-muted: #5b6472;
+    --po-accent: #2f6df6;
+    --po-accent-text: #ffffff;
+    --po-wave: #9aa4b4;
+    --po-wave-keep: #2f6df6;
+    --po-warn-bg: #fff4d6;
+    --po-warn-text: #6b4b00;
+    --po-warn-border: #e5c76b;
+    --po-danger: #b4231f;
+
+    --po-radius: 10px;
+    --po-gap: 1rem;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --po-surface: #14171c;
+        --po-panel: #1c2027;
+        --po-panel-alt: #242933;
+        --po-border: #333a45;
+        --po-text: #eef1f5;
+        --po-text-muted: #a3adbb;
+        --po-accent: #6b9bff;
+        --po-accent-text: #0d1117;
+        --po-wave: #5d6675;
+        --po-wave-keep: #6b9bff;
+        --po-warn-bg: #3a3116;
+        --po-warn-text: #ffdf94;
+        --po-warn-border: #7a6524;
+        --po-danger: #ff8a84;
+    }
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--po-surface);
+    color: var(--po-text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+h1, h2, h3 {
+    margin: 0;
+    line-height: 1.25;
+}
+
+button, input, select {
+    font: inherit;
+    color: inherit;
+}
+
+:focus-visible {
+    outline: 2px solid var(--po-accent);
+    outline-offset: 2px;
+}
+
+/* Base primitives. Shared by the page and its components, so they cannot live in a scoped file. */
+.card {
+    background: var(--po-panel);
+    border: 1px solid var(--po-border);
+    border-radius: var(--po-radius);
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0.9rem;
+}
+
+.meta {
+    color: var(--po-text-muted);
+    font-size: 0.875rem;
+}
+
+.hint {
+    color: var(--po-text-muted);
+    font-size: 0.9rem;
+}
+
+.status {
+    margin: 0.75rem 0 0;
+    color: var(--po-text-muted);
+}
+
+.error {
+    margin: 0.75rem 0 0;
+    color: var(--po-danger);
+    font-weight: 600;
+}
+
+.warn {
+    margin: 1rem 0 0;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--po-warn-border);
+    border-radius: var(--po-radius);
+    background: var(--po-warn-bg);
+    color: var(--po-warn-text);
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+}
+
+button,
+.button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--po-border);
+    border-radius: 8px;
+    background: var(--po-panel-alt);
+    color: var(--po-text);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+button:hover:not(:disabled),
+.button:hover {
+    border-color: var(--po-accent);
+}
+
+button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.primary {
+    background: var(--po-accent);
+    border-color: var(--po-accent);
+    color: var(--po-accent-text);
+    font-weight: 600;
+}
+
+.loading-progress {
+    position: fixed;
+    display: block;
+    width: 8rem;
+    height: 8rem;
+    inset: calc(50% - 4rem) auto auto calc(50% - 4rem);
+}
+
+.loading-progress circle {
+    fill: none;
+    stroke: var(--po-border);
+    stroke-width: 0.6rem;
+    transform-origin: 50% 50%;
+    transform: rotate(-90deg);
+}
+
+.loading-progress circle:last-child {
+    stroke: var(--po-accent);
+    stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8) 500%;
+    transition: stroke-dasharray 0.05s ease-in-out;
+}
+
+.loading-progress-text {
+    position: absolute;
+    text-align: center;
+    font-weight: 600;
+    inset: calc(50% - 0.75rem) 0 auto 0;
+}
+
+.loading-progress-text::after {
+    content: var(--blazor-load-percentage-text, "Loading");
+}
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1000;
+    padding: 0.75rem 1.25rem;
+    background: var(--po-warn-bg);
+    color: var(--po-warn-text);
+    box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.25);
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}

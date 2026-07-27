@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="NAudio" />
+    <PackageReference Include="NLayer.NAudioSupport" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PoChopAudio.Client\PoChopAudio.Client.csproj" />
+    <ProjectReference Include="..\PoChopAudio.Shared\PoChopAudio.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

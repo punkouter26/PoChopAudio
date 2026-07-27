@@ -1,0 +1,98 @@
+@* The five detection knobs. Used once for the batch and again inside any file that overrides them. *@
+
+<div class="knobs">
+    <label>
+        <span>Takes expected</span>
+        <input type="number" min="1" max="64" step="1" disabled="@Disabled"
+               value="@Settings.ExpectedSegments" @onchange="OnExpectedChangedAsync" />
+    </label>
+    <label>
+        <span>Shortest take (ms)</span>
+        <input type="number" min="10" max="60000" step="10" disabled="@Disabled"
+               value="@Settings.MinSegmentMs" @onchange="args => OnNumberChangedAsync(args, v => Settings.MinSegmentMs = v)" />
+    </label>
+    <label>
+        <span>Shortest gap (ms)</span>
+        <input type="number" min="10" max="60000" step="10" disabled="@Disabled"
+               value="@Settings.MinGapMs" @onchange="args => OnNumberChangedAsync(args, v => Settings.MinGapMs = v)" />
+    </label>
+    <label>
+        <span>Padding (ms)</span>
+        <input type="number" min="0" max="5000" step="5" disabled="@Disabled"
+               value="@Settings.PadMs" @onchange="args => OnNumberChangedAsync(args, v => Settings.PadMs = v)" />
+    </label>
+    <label class="wide">
+        <span class="threshold-head">
+            Threshold @ThresholdDisplay.ToString("F1") dBFS
+            <span class="auto">
+                <input type="checkbox" checked="@Settings.AutoThreshold" disabled="@Disabled"
+                       @onchange="OnAutoChangedAsync" />
+                auto
+            </span>
+        </span>
+        <input type="range" min="-90" max="-6" step="0.5" disabled="@(Disabled || Settings.AutoThreshold)"
+               value="@ThresholdDisplay.ToString("F1")" @onchange="OnThresholdChangedAsync" />
+    </label>
+</div>
+
+@code {
+    /// <summary>The knob values this panel edits in place.</summary>
+    [Parameter, EditorRequired]
+    public required ChopSettings Settings { get; set; }
+
+    /// <summary>Slider position to show while auto is on — the gate the detector actually chose.</summary>
+    [Parameter]
+    public double? AutoThresholdDb { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Raised after any knob moves, so the owner can re-split.</summary>
+    [Parameter]
+    public EventCallback Changed { get; set; }
+
+    private double ThresholdDisplay => Settings.AutoThreshold
+        ? AutoThresholdDb ?? ChopSettings.DefaultThresholdDb
+        : Settings.ThresholdDb;
+
+    private async Task OnExpectedChangedAsync(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var value))
+        {
+            Settings.ExpectedSegments = Math.Clamp(value, 1, 64);
+            await Changed.InvokeAsync();
+        }
+    }
+
+    private async Task OnNumberChangedAsync(ChangeEventArgs args, Action<double> apply)
+    {
+        if (double.TryParse(args.Value?.ToString(), out var value))
+        {
+            apply(value);
+            await Changed.InvokeAsync();
+        }
+    }
+
+    private async Task OnAutoChangedAsync(ChangeEventArgs args)
+    {
+        Settings.AutoThreshold = args.Value is true;
+
+        // Leaving auto starts the slider where the detector left it, so nothing jumps.
+        if (!Settings.AutoThreshold)
+        {
+            Settings.ThresholdDb = AutoThresholdDb ?? ChopSettings.DefaultThresholdDb;
+        }
+
+        await Changed.InvokeAsync();
+    }
+
+    private async Task OnThresholdChangedAsync(ChangeEventArgs args)
+    {
+        if (double.TryParse(args.Value?.ToString(), out var value))
+        {
+            Settings.ThresholdDb = value;
+            Settings.AutoThreshold = false;
+            await Changed.InvokeAsync();
+        }
+    }
+}

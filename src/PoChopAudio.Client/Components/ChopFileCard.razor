@@ -1,0 +1,177 @@
+@* One recording in the batch: status while it works, waveform / knobs / clips once it is done. *@
+
+<section class="card file @StatusClass">
+    <header class="file-head">
+        <button type="button" class="disclosure" @onclick="Toggle"
+                aria-expanded="@File.Expanded" aria-controls="@BodyId" disabled="@(!CanExpand)">
+            <span class="chevron" aria-hidden="true">@(File.Expanded ? "▾" : "▸")</span>
+            <span class="file-name">@File.FileName</span>
+        </button>
+
+        <span class="badge @BadgeClass" role="status">@StatusText</span>
+
+        <span class="meta">
+            @if (File.Upload is { } upload)
+            {
+                @($"{upload.DurationSeconds:F2}s · {upload.SampleRate} Hz · ")
+                @(upload.Channels == 1 ? "mono" : $"{upload.Channels} ch")
+                @($" · peak {upload.PeakDb:F1} dBFS · floor {upload.NoiseFloorDb:F1} dBFS")
+            }
+        </span>
+
+        @if (File.IsReady)
+        {
+            <a class="button" href="@ZipUrl">ZIP</a>
+        }
+    </header>
+
+    @if (File.Error is { } error)
+    {
+        <p class="error" role="alert">@error</p>
+    }
+    else if (File.Analysis?.Warning is { } warning)
+    {
+        <p class="warn" role="alert">@warning</p>
+    }
+
+    @if (File.Expanded && File.Upload is { } expandedUpload)
+    {
+        <div id="@BodyId" class="file-body">
+            <svg class="wave" viewBox="0 0 1000 120" preserveAspectRatio="none" role="img" aria-label="@WaveformLabel">
+                <rect x="0" y="0" width="1000" height="120" class="wave-bg" />
+                @foreach (var segment in File.Segments)
+                {
+                    <rect class="wave-keep"
+                          x="@X(segment.StartSeconds).ToString("F2")"
+                          y="0"
+                          width="@Math.Max(0.5, X(segment.EndSeconds) - X(segment.StartSeconds)).ToString("F2")"
+                          height="120" />
+                }
+                <path class="wave-line" d="@WavePath(expandedUpload)" vector-effect="non-scaling-stroke" />
+            </svg>
+
+            <h3>Settings for this file</h3>
+            <p class="hint">
+                @(File.UsesOwnSettings
+                    ? "Tuned for this file — a batch-wide re-split leaves it alone."
+                    : "Following the batch settings above.")
+            </p>
+
+            <ChopKnobs Settings="File.Settings"
+                       AutoThresholdDb="File.Analysis?.ThresholdDb"
+                       Disabled="Busy"
+                       Changed="OnKnobChangedAsync" />
+
+            <div class="actions">
+                <button type="button" class="primary" disabled="@Busy" @onclick="ResplitAsync">Re-split this file</button>
+                @if (File.UsesOwnSettings)
+                {
+                    <button type="button" disabled="@Busy" @onclick="FollowBatchAsync">Follow batch settings</button>
+                }
+            </div>
+
+            @if (File.Segments.Count > 0)
+            {
+                <h3>Clips</h3>
+                <ol class="clips">
+                    @foreach (var segment in File.Segments)
+                    {
+                        <li>
+                            <span class="clip-index">@segment.Index</span>
+                            <span class="clip-times">
+                                @($"{segment.StartSeconds:F2}s") &rarr; @($"{segment.EndSeconds:F2}s")
+                                <span class="meta">@($"{segment.DurationSeconds:F2}s long · peak {segment.PeakDb:F1} dBFS")</span>
+                            </span>
+                            <audio controls preload="none" src="@ClipUrl(segment)"></audio>
+                            <a class="button" href="@ClipUrl(segment)" download>Download</a>
+                        </li>
+                    }
+                </ol>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public required ChopFileState File { get; set; }
+
+    /// <summary>True while anything in the batch is working — knobs stay put until it settles.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Re-run detection for this file alone.</summary>
+    [Parameter]
+    public EventCallback<ChopFileState> Resplit { get; set; }
+
+    /// <summary>Drop this file's override and re-split it with the batch settings.</summary>
+    [Parameter]
+    public EventCallback<ChopFileState> FollowBatch { get; set; }
+
+    private bool CanExpand => File.Upload is not null;
+
+    private string BodyId => $"file-{File.Analysis?.JobId ?? File.Upload?.JobId ?? File.FileName.GetHashCode().ToString("x")}";
+
+    private string ZipUrl => $"api/chop/{File.Upload!.JobId}/clips.zip?v={File.Version}";
+
+    private string WaveformLabel => $"Waveform of {File.FileName} with {File.Segments.Count} detected take(s) highlighted.";
+
+    private string StatusClass => File.NeedsAttention ? "attention" : string.Empty;
+
+    private string BadgeClass => File.Status switch
+    {
+        ChopFileStatus.Failed => "badge-error",
+        ChopFileStatus.Ready when File.NeedsAttention => "badge-warn",
+        ChopFileStatus.Ready => "badge-ok",
+        _ => "badge-busy",
+    };
+
+    private string StatusText => File.Status switch
+    {
+        ChopFileStatus.Queued => "Queued",
+        ChopFileStatus.Uploading => "Decoding…",
+        ChopFileStatus.Splitting => "Finding takes…",
+        ChopFileStatus.Failed => "Failed",
+        _ => $"{File.Segments.Count} of {File.Settings.ExpectedSegments} takes",
+    };
+
+    private void Toggle() => File.Expanded = !File.Expanded;
+
+    private async Task OnKnobChangedAsync()
+    {
+        File.UsesOwnSettings = true;
+        await Resplit.InvokeAsync(File);
+    }
+
+    private Task ResplitAsync() => Resplit.InvokeAsync(File);
+
+    private Task FollowBatchAsync() => FollowBatch.InvokeAsync(File);
+
+    private string ClipUrl(ChopSegment segment) =>
+        $"api/chop/{File.Upload!.JobId}/clips/{segment.Index}?v={File.Version}";
+
+    private double X(double seconds) =>
+        File.Upload is { DurationSeconds: > 0 } upload
+            ? Math.Clamp(seconds / upload.DurationSeconds, 0, 1) * 1000
+            : 0;
+
+    private static string WavePath(UploadResult upload)
+    {
+        if (upload.Waveform.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var path = new System.Text.StringBuilder(upload.Waveform.Count * 24);
+        for (var i = 0; i < upload.Waveform.Count; i++)
+        {
+            var x = (i + 0.5) * 1000 / upload.Waveform.Count;
+            var half = Math.Max(0.4, upload.Waveform[i] * 58);
+            path.Append('M').Append(x.ToString("F2"))
+                .Append(' ').Append((60 - half).ToString("F2"))
+                .Append('V').Append((60 + half).ToString("F2"));
+        }
+
+        return path.ToString();
+    }
+}

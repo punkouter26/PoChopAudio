@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PoChopAudio.API/PoChopAudio.API.csproj" />
+    <Project Path="src/PoChopAudio.Client/PoChopAudio.Client.csproj" />
+    <Project Path="src/PoChopAudio.Shared/PoChopAudio.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PoChopAudio.Unit/PoChopAudio.Unit.csproj" />
+  </Folder>
+</Solution>

@@ -6,5 +6,8 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PoChopAudio.Unit/PoChopAudio.Unit.csproj" />
+    <Project Path="tests/PoChopAudio.Integration/PoChopAudio.Integration.csproj" />
+    <Project Path="tests/PoChopAudio.E2EAPI/PoChopAudio.E2EAPI.csproj" />
+    <Project Path="tests/PoChopAudio.E2EUI/PoChopAudio.E2EUI.csproj" />
   </Folder>
 </Solution>

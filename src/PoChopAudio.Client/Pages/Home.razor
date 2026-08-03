@@ -1,5 +1,7 @@
 @page "/"
+@using PoChopAudio.Client.Components
 @inject HttpClient Http
+@implements IAsyncDisposable
 
 <PageTitle>PoChopAudio</PageTitle>
 
@@ -8,9 +10,9 @@
 <section class="card">
     <label class="picker">
         <InputFile OnChange="OnFilesSelectedAsync" multiple
-                   accept=".wav,.mp3,.aiff,.aif,.m4a,.aac,.wma" disabled="@_busy" />
+                   accept="@_accept" disabled="@_busy" />
         <span class="hint">
-            Pick one or more recordings — each is split on its own, up to @ChopLimits.MaxBatchFiles at a time.
+            @AcceptHint
         </span>
     </label>
 
@@ -35,20 +37,20 @@
 
         <p class="hint">These apply to every file that has not been tuned on its own.</p>
 
-        <ChopKnobs Settings="_shared" Disabled="@_busy" Changed="StateHasChanged" />
+        <ChopKnobs Settings="_shared" Disabled="@_busy" Changed="OnBatchKnobChangedAsync" />
 
         <div class="actions">
-            <button type="button" class="primary" @onclick="ResplitAllAsync" disabled="@_busy">
-                Re-split all
+            <button type="button" class="primary" @onclick="ResplitAllAsync" disabled="@(_busy || ResplitTargetCount == 0)" title="@ResplitAllTitle">
+                @ResplitAllButtonText
             </button>
             <button type="button" @onclick="ResetSharedAsync" disabled="@_busy">Reset settings</button>
             @if (ReadyFiles.Count > 0)
             {
                 <a class="button primary" href="@BatchZipUrl">
-                    Download all @TotalClips clips as ZIP
+                    Download @ReadyClips clip@(ReadyClips == 1 ? "" : "s") as ZIP
                 </a>
             }
-            <button type="button" @onclick="ClearAsync" disabled="@_busy">Clear</button>
+            <button type="button" @onclick="ClearAsync" disabled="@_busy">Clear all</button>
         </div>
 
         @if (AttentionCount > 0)
@@ -79,30 +81,97 @@
     private string _status = string.Empty;
     private string? _error;
 
+    /// <summary>Token cancelled whenever a newer analyze starts; stale responses drop themselves.</summary>
+    private CancellationTokenSource _analyzeCts = new();
+
+    /// <summary>Coalesces batch-knob and per-file knob changes into one re-split after dragging stops.</summary>
+    private readonly Debouncer _resplit = new(TimeSpan.FromMilliseconds(300));
+
+    /// <summary>Marks a re-split request as stale so a late HTTP response does not overwrite the UI.</summary>
+    private int _analyzeEpoch;
+
+    /// <summary>Accept attribute for the file picker; mirrors what the API can actually decode.</summary>
+    private string _accept = ".wav,.mp3,.aiff,.aif";
+
+    private string AcceptHint =>
+        _capabilities is { } caps
+            ? $"Pick one or more recordings — each is split on its own, up to {caps.MaxBatchFiles} at a time. Supported here: {caps.Description}."
+            : "Pick one or more recordings — each is split on its own. Supported formats load once the server is reachable.";
+
+    private ChopCapabilities? _capabilities;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _capabilities = await Http.GetFromJsonAsync<ChopCapabilities>("api/chop/capabilities");
+            _accept = string.Join(',', _capabilities?.SupportedExtensions ?? []);
+        }
+        catch (HttpRequestException)
+        {
+            // Server not reachable yet; the picker falls back to the universal subset.
+            _accept = ".wav,.mp3,.aiff,.aif";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _analyzeCts.Cancel();
+        _analyzeCts.Dispose();
+        await Task.CompletedTask;
+    }
+
     private IReadOnlyList<ChopFileState> ReadyFiles => [.. _files.Where(f => f.IsReady)];
 
     private int TotalClips => _files.Sum(f => f.Segments.Count);
 
+    /// <summary>Only the clips that will actually be in the batch ZIP.</summary>
+    private int ReadyClips => ReadyFiles.Sum(f => f.Segments.Count);
+
     private int AttentionCount => _files.Count(f => f.NeedsAttention);
+
+    private int ResplitTargetCount => _files.Count(f => !f.UsesOwnSettings && f.Upload is not null);
+
+    private string ResplitAllButtonText => ResplitTargetCount == _files.Count
+        ? "Re-split all"
+        : $"Re-split batch ({ResplitTargetCount})";
+
+    private string ResplitAllTitle => ResplitTargetCount < _files.Count
+        ? $"{_files.Count - ResplitTargetCount} file(s) are individually tuned and skipped by batch re-split. Click 'Follow batch settings' on a file card to re-include it."
+        : "Re-split all recordings using current batch settings";
 
     private string Summary =>
         $"{_files.Count} file(s) · {TotalClips} clip(s) · {_files.Count(f => f.UsesOwnSettings)} tuned individually";
 
-    private string BatchZipUrl =>
-        "api/chop/clips.zip?" + string.Join('&', ReadyFiles.Select(f => $"jobs={f.Upload!.JobId}"));
+    private string BatchZipUrl
+    {
+        get
+        {
+            var v = ReadyFiles.Count == 0 ? 0 : ReadyFiles.Sum(f => f.Version);
+            return "api/chop/clips.zip?v=" + v + "&"
+                + string.Join('&', ReadyFiles.Select(f => $"jobs={f.Upload!.JobId}"));
+        }
+    }
 
     private async Task OnFilesSelectedAsync(InputFileChangeEventArgs args)
     {
         _error = null;
 
+        var availableSlots = ChopLimits.MaxBatchFiles - _files.Count;
+        if (availableSlots <= 0)
+        {
+            _error = $"Batch limit reached (maximum {ChopLimits.MaxBatchFiles} files allowed). Click Clear all to start a new batch.";
+            return;
+        }
+
         IReadOnlyList<IBrowserFile> picked;
         try
         {
-            picked = args.GetMultipleFiles(ChopLimits.MaxBatchFiles);
+            picked = args.GetMultipleFiles(availableSlots);
         }
         catch (InvalidOperationException)
         {
-            _error = $"Pick at most {ChopLimits.MaxBatchFiles} files at a time.";
+            _error = $"Cannot add that many files. Only {availableSlots} slot(s) remaining (maximum {ChopLimits.MaxBatchFiles}).";
             return;
         }
 
@@ -111,19 +180,19 @@
             return;
         }
 
-        await DiscardJobsAsync();
-        _files.Clear();
-
+        var startIndex = _files.Count;
+        var newStates = new List<ChopFileState>();
         foreach (var file in picked)
         {
-            _files.Add(new ChopFileState
+            var state = new ChopFileState
             {
                 FileName = file.Name,
                 SizeBytes = file.Size,
                 Settings = _shared.Clone(),
-                // A single file opens straight to its clips; a batch stays collapsed until asked.
-                Expanded = picked.Count == 1,
-            });
+                Expanded = (startIndex == 0 && picked.Count == 1),
+            };
+            _files.Add(state);
+            newStates.Add(state);
         }
 
         _busy = true;
@@ -137,13 +206,13 @@
                 _status = $"Decoding {picked[i].Name} ({i + 1} of {picked.Count})…";
                 StateHasChanged();
 
-                await UploadAsync(picked[i], _files[i]);
+                await UploadAsync(picked[i], newStates[i]);
 
-                if (_files[i].Status is not ChopFileStatus.Failed)
+                if (newStates[i].Status is not ChopFileStatus.Failed)
                 {
                     _status = $"Finding takes in {picked[i].Name} ({i + 1} of {picked.Count})…";
                     StateHasChanged();
-                    await AnalyzeAsync(_files[i]);
+                    await AnalyzeAsync(newStates[i]);
                 }
             }
         }
@@ -203,11 +272,22 @@
         file.Status = ChopFileStatus.Splitting;
         file.Error = null;
 
+        var epoch = Interlocked.Increment(ref _analyzeEpoch);
+        var token = _analyzeCts.Token;
+
         try
         {
-            using var response = await Http.PostAsJsonAsync(
-                $"api/chop/{upload.JobId}/analyze",
-                file.Settings.ToOptions());
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/chop/{upload.JobId}/analyze")
+            {
+                Content = JsonContent.Create(file.Settings.ToOptions()),
+            };
+
+            using var response = await Http.SendAsync(request, token);
+
+            if (token.IsCancellationRequested || epoch != Volatile.Read(ref _analyzeEpoch))
+            {
+                return;
+            }
 
             if (!response.IsSuccessStatusCode)
             {
@@ -215,12 +295,26 @@
                 return;
             }
 
-            file.Analysis = await response.Content.ReadFromJsonAsync<AnalysisResult>();
+            file.Analysis = await response.Content.ReadFromJsonAsync<AnalysisResult>(cancellationToken: token);
+            if (token.IsCancellationRequested || epoch != Volatile.Read(ref _analyzeEpoch))
+            {
+                return;
+            }
+
             file.Version++;
             file.Status = ChopFileStatus.Ready;
         }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer request; drop this result quietly.
+        }
         catch (Exception exception)
         {
+            if (epoch != Volatile.Read(ref _analyzeEpoch))
+            {
+                return;
+            }
+
             Fail(file, $"Could not split the recording: {exception.Message}");
         }
     }
@@ -229,6 +323,7 @@
     {
         _busy = true;
         _status = $"Re-splitting {file.FileName}…";
+        StateHasChanged();
 
         try
         {
@@ -237,6 +332,10 @@
         finally
         {
             _busy = false;
+            if (file.Status is ChopFileStatus.Ready or ChopFileStatus.Failed)
+            {
+                _status = string.Empty;
+            }
         }
     }
 
@@ -260,6 +359,7 @@
         finally
         {
             _busy = false;
+            _status = string.Empty;
         }
     }
 
@@ -281,6 +381,19 @@
         await DiscardJobsAsync();
         _files.Clear();
         _error = null;
+        _status = string.Empty;
+        _analyzeCts.Cancel();
+        _analyzeCts = new CancellationTokenSource();
+    }
+
+    /// <summary>Batch knob changed: coalesce the deluge into one re-split once dragging stops.</summary>
+    private async Task OnBatchKnobChangedAsync()
+    {
+        await _resplit.InvokeAsync(async _ =>
+        {
+            await InvokeAsync(StateHasChanged);
+            await ResplitAllAsync();
+        });
     }
 
     /// <summary>Frees the server's temp copies instead of waiting for them to expire.</summary>
@@ -295,6 +408,10 @@
             catch (HttpRequestException)
             {
                 // The job expires on its own; losing the race is not worth reporting.
+            }
+            catch (TaskCanceledException)
+            {
+                // Request aborted (page navigation, etc.) — let the server-side sweep handle it.
             }
         }
     }

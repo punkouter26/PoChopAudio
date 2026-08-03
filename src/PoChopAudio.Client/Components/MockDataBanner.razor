@@ -1,0 +1,12 @@
+@if (IsActive)
+{
+    <div class="mock-data-banner" role="status">
+        <span class="mock-tag">USING MOCK DATA</span>
+        <span class="mock-desc">Offline mode active — using local fallback capabilities.</span>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsActive { get; set; }
+}

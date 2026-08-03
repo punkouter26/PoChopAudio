@@ -10,6 +10,9 @@ public static class ChopLimits
 
     /// <summary>Most recordings one batch may hold.</summary>
     public const int MaxBatchFiles = 32;
+
+    /// <summary>Starting position of the threshold slider — the gate a clean take usually clears.</summary>
+    public const double DefaultThresholdDb = -40;
 }
 
 /// <summary>Identifies one uploaded-and-decoded source recording.</summary>
@@ -79,3 +82,10 @@ public sealed record AnalysisResult(
     double PeakDb,
     IReadOnlyList<ChopSegment> Segments,
     string? Warning);
+
+/// <summary>Tells the UI which file extensions the running API can actually decode.</summary>
+public sealed record ChopCapabilities(
+    IReadOnlyList<string> SupportedExtensions,
+    string Description,
+    int MaxBatchFiles,
+    int MaxUploadMb);

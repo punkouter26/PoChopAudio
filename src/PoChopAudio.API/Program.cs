@@ -20,10 +20,19 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxRequestBodySize = ChopLimits.MaxUploadBytes;
 });
 
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddAuthentication("FakeAuth")
+        .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, PoChopAudio.API.Features.Auth.FakeAuthHandler>("FakeAuth", null);
+    builder.Services.AddAuthorization();
+}
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    app.UseAuthentication();
+    app.UseAuthorization();
     app.UseWebAssemblyDebugging();
     app.MapOpenApi();
     app.MapScalarApiReference();

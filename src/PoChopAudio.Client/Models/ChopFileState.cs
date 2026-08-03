@@ -25,8 +25,6 @@ public sealed class ChopSettings
     public bool AutoThreshold { get; set; }
     public double ThresholdDb { get; set; }
 
-    public const double DefaultThresholdDb = -40;
-
     public static ChopSettings Defaults()
     {
         var defaults = new ChopOptions();
@@ -37,7 +35,7 @@ public sealed class ChopSettings
             MinGapMs = defaults.MinGapMs,
             PadMs = defaults.PadMs,
             AutoThreshold = true,
-            ThresholdDb = DefaultThresholdDb,
+            ThresholdDb = ChopLimits.DefaultThresholdDb,
         };
     }
 
@@ -83,8 +81,4 @@ public sealed class ChopFileState
     public bool NeedsAttention =>
         Status is ChopFileStatus.Failed ||
         (Status is ChopFileStatus.Ready && Segments.Count != Settings.ExpectedSegments);
-
-    public double ThresholdValue => Settings.AutoThreshold
-        ? Analysis?.ThresholdDb ?? ChopSettings.DefaultThresholdDb
-        : Settings.ThresholdDb;
 }

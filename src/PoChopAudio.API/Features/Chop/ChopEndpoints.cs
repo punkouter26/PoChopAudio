@@ -17,6 +17,13 @@ public static class ChopEndpoints
         group.MapPost("/upload", UploadAsync)
             .WithSummary("Upload and decode a recording");
 
+        group.MapGet("/capabilities", () => TypedResults.Ok(new ChopCapabilities(
+            SupportedExtensions: AudioDecoder.SupportedExtensions,
+            Description: AudioDecoder.SupportedExtensionsDescription,
+            MaxBatchFiles: ChopLimits.MaxBatchFiles,
+            MaxUploadMb: (int)(ChopLimits.MaxUploadBytes / (1024 * 1024)))))
+            .WithSummary("Audio formats and upload limits the running API accepts");
+
         group.MapPost("/{jobId}/analyze", Analyze)
             .WithSummary("Find the takes inside an uploaded recording");
 

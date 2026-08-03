@@ -2,16 +2,19 @@
 
 <div class="shell">
     <header class="bar">
-        <div class="brand">
+        <a class="brand" href="" aria-label="PoChopAudio — home">
             <span class="mark" aria-hidden="true">✂</span>
-            <span class="name">PoChopAudio</span>
-        </div>
+            <span class="brand-text">
+                <span class="name">PoChopAudio</span>
+                <span class="tagline">Split recordings into a clip per take</span>
+            </span>
+        </a>
 
-        <p class="tagline">Split recordings into a clip per take</p>
-
-        <nav class="tools" aria-label="Diagnostics">
-            <a href="health" target="_blank">Health</a>
-            <a href="diag" target="_blank">Diag</a>
+        <nav class="session" aria-label="Session">
+            <a href="health-status" class="nav-link" title="Open Health & Diagnostics Status">Health Status</a>
+            <a href="scalar/v1" target="_blank" rel="noopener" class="nav-link" title="Open API Documentation (Scalar)">API Docs</a>
+            <a href="diag" target="_blank" rel="noopener" class="nav-link" title="Open Server Diagnostics">Diagnostics</a>
+            <span class="session-idle">Local session</span>
         </nav>
     </header>
 

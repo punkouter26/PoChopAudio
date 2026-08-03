@@ -16,9 +16,20 @@ public static class AudioDecoder
 
     private static readonly string[] AlwaysSupported = [".wav", ".wave", ".mp3", ".aiff", ".aif"];
 
+    private static readonly string[] WindowsOnly = [".m4a", ".aac", ".wma"];
+
+    /// <summary>The user-visible list. Aliases like <c>.wave</c> are still decoded via <see cref="IsSupportedExtension"/> but not advertised in the picker.</summary>
+    private static readonly string[] AdvertisedAlways = [".wav", ".mp3", ".aiff", ".aif"];
+
+    /// <summary>The exact list the running platform can decode — drives the UI's file picker.</summary>
+    public static IReadOnlyList<string> SupportedExtensions =>
+        OperatingSystem.IsWindows()
+            ? [.. AdvertisedAlways, .. WindowsOnly]
+            : AdvertisedAlways;
+
     public static bool IsSupportedExtension(string extension) =>
         AlwaysSupported.Contains(extension, StringComparer.OrdinalIgnoreCase) ||
-        (OperatingSystem.IsWindows() && extension is ".m4a" or ".aac" or ".wma" or ".mp4");
+        (OperatingSystem.IsWindows() && WindowsOnly.Contains(extension, StringComparer.OrdinalIgnoreCase));
 
     public static string SupportedExtensionsDescription =>
         OperatingSystem.IsWindows() ? "WAV, MP3, AIFF, M4A, AAC, WMA" : "WAV, MP3, AIFF";

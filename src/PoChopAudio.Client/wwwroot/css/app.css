@@ -206,3 +206,70 @@ button:disabled {
     right: 0.75rem;
     top: 0.5rem;
 }
+
+.mock-data-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 1rem;
+    background: var(--po-warn-bg);
+    border-bottom: 1px solid var(--po-warn-border);
+    color: var(--po-warn-text);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.mock-tag {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: var(--po-warn-border);
+    color: #000;
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+}
+
+.health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.health-card {
+    padding: 1rem;
+    border-radius: var(--po-radius);
+    border: 1px solid var(--po-border);
+    background: var(--po-panel-alt);
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.health-card.ok {
+    border-color: var(--po-accent);
+}
+
+.health-card.fail {
+    border-color: var(--po-danger);
+}
+
+.health-title {
+    font-size: 0.85rem;
+    color: var(--po-text-muted);
+}
+
+.health-val {
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.diag-code {
+    background: var(--po-panel-alt);
+    border: 1px solid var(--po-border);
+    border-radius: var(--po-radius);
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+}

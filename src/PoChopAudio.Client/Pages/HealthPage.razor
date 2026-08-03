@@ -1,0 +1,77 @@
+@page "/health-status"
+@inject HttpClient Http
+
+<PageTitle>System Health & Connection Status · PoChopAudio</PageTitle>
+
+<section class="card">
+    <header class="card-head">
+        <h2>System Health & Connection Status</h2>
+        <span class="meta">NET_RULES §3 Compliance</span>
+    </header>
+
+    @if (_loading)
+    {
+        <p class="status" role="status">Checking server health and connection status…</p>
+    }
+    else
+    {
+        <div class="health-grid">
+            <div class="health-card @(_isHealthy ? "ok" : "fail")">
+                <span class="health-title">Backend API Health</span>
+                <span class="health-val">@(_isHealthy ? "HEALTHY (200 OK)" : "UNREACHABLE")</span>
+            </div>
+
+            <div class="health-card ok">
+                <span class="health-title">Blazor WASM Client</span>
+                <span class="health-val">RUNNING (Client-side)</span>
+            </div>
+        </div>
+
+        @if (_diagJson is not null)
+        {
+            <h3>Diagnostic Details (Masked Secrets)</h3>
+            <pre class="diag-code">@_diagJson</pre>
+        }
+    }
+
+    <div class="actions" style="margin-top: 1rem;">
+        <button type="button" class="primary" @onclick="CheckHealthAsync">Refresh Status</button>
+        <a class="button" href="/">Back to PoChopAudio</a>
+    </div>
+</section>
+
+@code {
+    private bool _loading = true;
+    private bool _isHealthy;
+    private string? _diagJson;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckHealthAsync();
+    }
+
+    private async Task CheckHealthAsync()
+    {
+        _loading = true;
+        try
+        {
+            var res = await Http.GetAsync("health");
+            _isHealthy = res.IsSuccessStatusCode;
+
+            var diagRes = await Http.GetAsync("diag");
+            if (diagRes.IsSuccessStatusCode)
+            {
+                _diagJson = await diagRes.Content.ReadAsStringAsync();
+            }
+        }
+        catch
+        {
+            _isHealthy = false;
+            _diagJson = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

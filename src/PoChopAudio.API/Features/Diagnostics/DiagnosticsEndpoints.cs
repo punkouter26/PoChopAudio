@@ -15,7 +15,9 @@ public static class DiagnosticsEndpoints
             .WithTags("Diagnostics")
             .WithSummary("Liveness probe");
 
-        app.MapGet("/diag", (IHostEnvironment environment, IConfiguration configuration, ChopJobStore store) =>
+        // /diag is gated to Development on purpose — it leaks the temp-root path, format
+        // support and runtime fingerprint. /health is enough for a liveness probe in any env.
+        var diag = app.MapGet("/diag", (IHostEnvironment environment, IConfiguration configuration, ChopJobStore store) =>
             TypedResults.Ok(new
             {
                 application = environment.ApplicationName,
@@ -27,6 +29,7 @@ public static class DiagnosticsEndpoints
                 audio = new
                 {
                     supportedFormats = AudioDecoder.SupportedExtensionsDescription,
+                    supportedExtensions = AudioDecoder.SupportedExtensions,
                     maxUploadMb = ChopLimits.MaxUploadBytes / (1024 * 1024),
                     maxBatchFiles = ChopLimits.MaxBatchFiles,
                     frameMs = SegmentDetector.FrameMs,
@@ -41,6 +44,11 @@ public static class DiagnosticsEndpoints
             }))
             .WithTags("Diagnostics")
             .WithSummary("Masked configuration and runtime state");
+
+        if (!app.ServiceProvider.GetRequiredService<IHostEnvironment>().IsDevelopment())
+        {
+            diag.RequireHost("localhost");
+        }
 
         return app;
     }

@@ -6,18 +6,17 @@
                 aria-expanded="@File.Expanded" aria-controls="@BodyId" disabled="@(!CanExpand)">
             <span class="chevron" aria-hidden="true">@(File.Expanded ? "▾" : "▸")</span>
             <span class="file-name">@File.FileName</span>
+            <span class="meta">
+                @if (File.Upload is { } upload)
+                {
+                    @($"{upload.DurationSeconds:F2}s · {upload.SampleRate} Hz · ")
+                    @(upload.Channels == 1 ? "mono" : $"{upload.Channels} ch")
+                    @($" · peak {upload.PeakDb:F1} dBFS · floor {upload.NoiseFloorDb:F1} dBFS")
+                }
+            </span>
         </button>
 
         <span class="badge @BadgeClass" role="status">@StatusText</span>
-
-        <span class="meta">
-            @if (File.Upload is { } upload)
-            {
-                @($"{upload.DurationSeconds:F2}s · {upload.SampleRate} Hz · ")
-                @(upload.Channels == 1 ? "mono" : $"{upload.Channels} ch")
-                @($" · peak {upload.PeakDb:F1} dBFS · floor {upload.NoiseFloorDb:F1} dBFS")
-            }
-        </span>
 
         @if (File.IsReady)
         {
@@ -66,7 +65,9 @@
                 <button type="button" class="primary" disabled="@Busy" @onclick="ResplitAsync">Re-split this file</button>
                 @if (File.UsesOwnSettings)
                 {
-                    <button type="button" disabled="@Busy" @onclick="FollowBatchAsync">Follow batch settings</button>
+                    <button type="button"
+                            title="Drop this file's overrides and re-split with the batch settings"
+                            disabled="@Busy" @onclick="FollowBatchAsync">Follow batch settings</button>
                 }
             </div>
 
@@ -74,8 +75,7 @@
             {
                 <h3>Clips</h3>
                 <ol class="clips">
-                    @foreach (var segment in File.Segments)
-                    {
+                    <Virtualize TItem="ChopSegment" Items="[.. File.Segments]" Context="segment">
                         <li>
                             <span class="clip-index">@segment.Index</span>
                             <span class="clip-times">
@@ -85,7 +85,7 @@
                             <audio controls preload="none" src="@ClipUrl(segment)"></audio>
                             <a class="button" href="@ClipUrl(segment)" download>Download</a>
                         </li>
-                    }
+                    </Virtualize>
                 </ol>
             }
         </div>
@@ -110,7 +110,12 @@
 
     private bool CanExpand => File.Upload is not null;
 
-    private string BodyId => $"file-{File.Analysis?.JobId ?? File.Upload?.JobId ?? File.FileName.GetHashCode().ToString("x")}";
+    private string BodyId => $"file-{File.Analysis?.JobId ?? File.Upload?.JobId ?? Id.ToString()}";
+
+    /// <summary>Per-instance id used as a fallback when the upload hasn't been assigned yet.</summary>
+    private readonly int Id = Interlocked.Increment(ref _idSequence);
+
+    private static int _idSequence;
 
     private string ZipUrl => $"api/chop/{File.Upload!.JobId}/clips.zip?v={File.Version}";
 
@@ -132,15 +137,24 @@
         ChopFileStatus.Uploading => "Decoding…",
         ChopFileStatus.Splitting => "Finding takes…",
         ChopFileStatus.Failed => "Failed",
+        ChopFileStatus.Ready when File.Segments.Count == File.Settings.ExpectedSegments
+            => $"{File.Segments.Count} take{(File.Segments.Count == 1 ? "" : "s")}",
         _ => $"{File.Segments.Count} of {File.Settings.ExpectedSegments} takes",
     };
+
+    /// <summary>Coalesces the dozen-or-so knob changes per drag into a single re-split.</summary>
+    private readonly Debouncer _resplit = new(TimeSpan.FromMilliseconds(300));
 
     private void Toggle() => File.Expanded = !File.Expanded;
 
     private async Task OnKnobChangedAsync()
     {
         File.UsesOwnSettings = true;
-        await Resplit.InvokeAsync(File);
+
+        await _resplit.InvokeAsync(async _ =>
+        {
+            await InvokeAsync(async () => await Resplit.InvokeAsync(File));
+        });
     }
 
     private Task ResplitAsync() => Resplit.InvokeAsync(File);
@@ -148,7 +162,7 @@
     private Task FollowBatchAsync() => FollowBatch.InvokeAsync(File);
 
     private string ClipUrl(ChopSegment segment) =>
-        $"api/chop/{File.Upload!.JobId}/clips/{segment.Index}?v={File.Version}";
+        $"api/chop/{File.Upload!.JobId}/clips/{segment.Index}?v={segment.StartSeconds:F3}_{segment.EndSeconds:F3}";
 
     private double X(double seconds) =>
         File.Upload is { DurationSeconds: > 0 } upload

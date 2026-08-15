@@ -17,7 +17,6 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddScoped<CutoutClient>();
 builder.Services.AddScoped<ProgressStream>();
 builder.Services.AddSingleton<BrowserOnnxRuntime>();
-builder.Services.AddSingleton<BrowserOnnxRemover>();
 builder.Services.AddScoped<PreviewService>();
 builder.Services.AddScoped<DropZoneService>();
 

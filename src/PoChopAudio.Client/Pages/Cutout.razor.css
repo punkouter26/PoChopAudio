@@ -237,29 +237,8 @@ input[type="color"]:hover {
     margin-left: auto;
 }
 
-/* File card — one row per upload */
-.file {
-    padding: 0.85rem 1.1rem;
-}
-
-.file-head {
-    display: grid;
-    grid-template-columns: auto auto 1fr auto auto;
-    align-items: center;
-    gap: 0.85rem;
-}
-
-.file-head .disclosure {
-    display: contents;
-}
-
-.file-head .chevron {
-    color: var(--po-text-muted);
-    font-size: 0.9rem;
-    width: 1rem;
-    text-align: center;
-}
-
+/* File card — one row per upload. Disclosure/header/badge shape lives in app.css;
+   this file only holds what's specific to the cutout thumbnail + status colors. */
 .file-head .thumb {
     width: 52px;
     height: 52px;
@@ -271,36 +250,58 @@ input[type="color"]:hover {
     display: block;
 }
 
-.file-head .file-info {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    gap: 0.1rem;
-}
-
 .file-head .file-name {
-    font-weight: 600;
-    color: var(--po-text);
     font-size: 0.92rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .file-head .meta {
     font-size: 0.8rem;
+    color: var(--po-text-muted);
+}
+
+.thumb-pair {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: var(--po-panel-alt);
+    border: 1px solid var(--po-border);
+    padding: 0.3rem 0.45rem;
+    border-radius: var(--po-radius);
+    flex-shrink: 0;
+}
+
+.thumb-pair .thumb {
+    width: 38px;
+    height: 38px;
+    border-width: 1px;
+}
+
+.thumb-pair .checker {
+    padding: 0;
+    min-height: 38px;
+    padding: 1px;
+}
+
+.thumb-pair .checker .thumb {
+    border: none;
+}
+
+.thumb-sep {
+    color: var(--po-text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
 }
 
 .file-head .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
     font-size: 0.72rem;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    white-space: nowrap;
+}
+
+.file-head .button {
+    flex-shrink: 0;
 }
 
 .badge.pending { background: var(--po-panel-deep); color: var(--po-text-muted); border: 1px solid var(--po-border); }
@@ -500,28 +501,11 @@ input[type="color"]:hover {
 }
 
 .thumb-pair {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: var(--po-panel-alt);
-    border: 1px solid var(--po-border);
-    padding: 0.2rem 0.4rem;
-    border-radius: var(--po-radius);
-}
-
-.thumb-pair .thumb {
-    width: 36px;
-    height: 36px;
-}
-
-.thumb-pair .checker {
-    min-height: 36px;
-    padding: 1px;
+    /* (rules consolidated near .file-head) */
 }
 
 .thumb-sep {
-    color: var(--po-text-muted);
-    font-size: 0.9rem;
+    /* (rules consolidated near .file-head) */
 }
 
 .knob-toggle {

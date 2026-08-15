@@ -3,61 +3,16 @@ h3 {
     margin: 1.25rem 0 0.25rem;
 }
 
-.file {
-    padding: 0.85rem 1rem;
-}
-
 /* A file that split cleanly needs no emphasis; one that did not gets a warm edge. */
 .file.attention {
     border-color: var(--po-warn-border);
 }
 
-.file-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 0.85rem;
-}
-
-.disclosure {
-    flex: 1 1 14rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.6rem;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    min-width: 0;
-    padding: 0.35rem 0.5rem;
-    border-color: transparent;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-}
-
-.disclosure:hover:not(:disabled) {
-    background: var(--po-panel-alt);
-    border-radius: 6px;
-}
-
-.chevron {
-    color: var(--po-text-muted);
-    width: 1ch;
-}
-
-.file-name {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .badge {
     padding: 0.15rem 0.55rem;
     border: 1px solid var(--po-border);
-    border-radius: 999px;
     font-size: 0.8rem;
     font-weight: 600;
-    white-space: nowrap;
 }
 
 .badge-ok {
@@ -78,12 +33,6 @@ h3 {
 
 .badge-busy {
     color: var(--po-text-muted);
-}
-
-.file-body {
-    margin-top: 0.9rem;
-    padding-top: 0.9rem;
-    border-top: 1px solid var(--po-border);
 }
 
 .wave {

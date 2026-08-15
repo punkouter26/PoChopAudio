@@ -17,6 +17,11 @@ src/PoChopAudio.API/          Minimal API + BFF host; serves the Blazor client
     CutoutJobStore            Same temp-dir / 2 h TTL pattern as ChopJobStore
     CutoutEndpoints           /api/cutout/{upload, capabilities, analyze, image, images.zip}
   Features/Diagnostics/       /health and /diag
+  Features/Archive/           Batch metadata persisted to Azurite (best-effort, non-blocking)
+    AzuriteBlobStore           Thin wrapper over the blob container; swallows errors when
+                                Azurite is unreachable so the in-memory job store keeps working
+    JobArchive                 Batch JSON at batches/{id}.json + a capped recency index
+    ArchiveEndpoints            /api/archive/batches {GET list, GET one, POST save, DELETE}
 src/PoChopAudio.Client/       Blazor WASM UI
   Components/ChopFileCard.razor   One recording
   Components/ChopKnobs.razor      The five chop settings
@@ -148,7 +153,12 @@ host at `_content/cutout-models/u2netp.onnx`.
 - **No auth.** Nothing is protected, so there is no BFF cookie flow, no Entra ID, no
   `FakeAuthHandler`. Add `Features/Auth` and a `FallbackPolicy` if this is ever hosted for more than
   one person — the NET_RULES rules for that path still apply.
-- **No database.** A job is a temp directory; restarting is the reset button.
+- **No primary database.** A job is still a temp directory that resets on restart. Azurite
+  (`Features/Archive`) only holds a lightweight, best-effort recency index of past batches
+  (used by the Cutout page's "Recent batches" list) — never the audio or image bytes
+  themselves, which are gone once the temp directory is wiped. It is not required to run
+  the app: every write is caught and logged, so a missing Azurite degrades archive listing,
+  not the chop/cutout pipelines.
 - **No paid AI services.** Both engines are free (on-device ONNX models). remove.bg was considered
   and dropped per the no-paid-services decision.
 - **No per-file progress bar.** Upload is sequential and the status line names the file it is on,

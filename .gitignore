@@ -5,3 +5,7 @@ obj/
 *.user
 publish/
 output/
+*.out
+*.err
+Matt_*.m4a
+sample.png

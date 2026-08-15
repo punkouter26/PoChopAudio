@@ -5,10 +5,10 @@ using Azure.Storage.Blobs.Models;
 namespace PoChopAudio.API.Storage;
 
 /// <summary>
-/// Thin wrapper over the Azurite blob container that ships with docker-compose. The container
-/// (mcr.microsoft.com/azure-storage/azurite) is the durable backing store for original
-/// uploads and processed outputs: jobs on disk still hold the hot data, but a copy lives
-/// in Azurite so the user can re-open an old batch after the server restarts.
+/// Thin wrapper over an Azurite blob container (mcr.microsoft.com/azure-storage/azurite),
+/// run locally however the developer prefers — there is no docker-compose file in this repo.
+/// Only batch metadata is persisted here (see JobArchive); the actual audio/image bytes stay
+/// on disk in the job's temp directory and are gone once that directory is wiped.
 /// </summary>
 public sealed class AzuriteBlobStore : IAsyncDisposable
 {

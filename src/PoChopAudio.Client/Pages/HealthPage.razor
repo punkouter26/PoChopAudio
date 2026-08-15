@@ -225,14 +225,6 @@
                 {
                     var opts = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
                     diag = await Http.GetFromJsonAsync<DiagPayload>("diag", opts);
-                    if (diag is null)
-                    {
-                        _diagJson += "\n[debug] /diag returned null POCO";
-                    }
-                    else
-                    {
-                        _diagJson += $"\n[debug] diag.Audio={(diag.Audio is not null)}, diag.Image={(diag.Image is not null)}, diag.Jobs={(diag.Jobs is not null)}, configs={(diag.Configuration?.Count.ToString() ?? "null")}";
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -287,12 +279,7 @@
                 try
                 {
                     using var rawResp = await Http.GetAsync("diag");
-                    var rawBody = await rawResp.Content.ReadAsStringAsync();
-                    _diagJson = rawBody;
-                    if (diag is not null)
-                    {
-                        _diagJson += $"\n[debug] diag.Audio={(diag.Audio != null)}, diag.Image={(diag.Image != null)}, diag.Jobs={(diag.Jobs != null)}, configs={diag.Configuration?.Count ?? -1}";
-                    }
+                    _diagJson = await rawResp.Content.ReadAsStringAsync();
                 }
                 catch
                 {
@@ -345,7 +332,7 @@
 
     private sealed class ImagePayload
     {
-        [JsonPropertyName("supportedFormats")] public string[] SupportedFormats { get; set; } = [];
+        [JsonPropertyName("supportedFormats")] public string SupportedFormats { get; set; } = string.Empty;
         [JsonPropertyName("supportedExtensions")] public string[] SupportedExtensions { get; set; } = [];
         [JsonPropertyName("maxUploadMb")] public int MaxUploadMb { get; set; }
         [JsonPropertyName("maxBatchFiles")] public int MaxBatchFiles { get; set; }

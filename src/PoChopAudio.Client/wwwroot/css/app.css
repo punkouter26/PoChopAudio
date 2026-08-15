@@ -241,6 +241,85 @@ button:disabled {
     background: var(--po-accent-soft);
 }
 
+/* File-card primitives — one row per upload in a batch. Shared by the Chop and Cutout
+   file cards so the disclosure/badge/header layout stays identical between features;
+   each feature's .razor.css only adds what's specific to it (status colors, previews). */
+.file {
+    padding: 0.85rem 1rem;
+    transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.file:hover {
+    box-shadow: var(--po-shadow-md);
+}
+
+.file-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.85rem;
+}
+
+.disclosure {
+    flex: 1 1 14rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    min-width: 0;
+    padding: 0.35rem 0.5rem;
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: none;
+    border-radius: var(--po-radius-sm);
+}
+
+.disclosure:hover:not(:disabled) {
+    background: var(--po-panel-alt);
+}
+
+.chevron {
+    color: var(--po-text-muted);
+    width: 1ch;
+    flex-shrink: 0;
+    transition: transform 0.12s ease;
+}
+
+.file-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 0.1rem;
+    flex: 1 1 12rem;
+}
+
+.file-name {
+    font-weight: 600;
+    color: var(--po-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Shape only — each feature sets its own padding/type scale/status colors. */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.file-body {
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--po-border);
+}
+
 @keyframes po-spin {
     to { transform: rotate(360deg); }
 }

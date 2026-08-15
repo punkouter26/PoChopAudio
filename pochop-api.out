@@ -7,3 +7,7 @@ info: Microsoft.Hosting.Lifetime[0]
       Hosting environment: Development
 info: Microsoft.Hosting.Lifetime[0]
       Content root path: C:\Users\punko\Downloads\PoChopAudio\src\PoChopAudio.API
+info: PoChopAudio.API.Features.Cutout.Engines.OnnxU2NetRemover[0]
+      Loaded u2netp.onnx. Inputs: input.1. Outputs: 1959, 1960, 1961, 1962, 1963, 1964, 1965.
+info: PoChopAudio.API.Features.Cutout.EnginePicker[0]
+      Background-removal engines ready: OnnxU2Net

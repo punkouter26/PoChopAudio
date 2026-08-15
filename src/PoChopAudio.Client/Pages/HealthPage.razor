@@ -1,5 +1,6 @@
 @page "/health-status"
 @implements IDisposable
+@using System.Text.Json.Serialization
 @inject HttpClient Http
 
 <PageTitle>System Health & Connection Status · PoChopAudio</PageTitle>
@@ -222,11 +223,20 @@
                 DiagPayload? diag = null;
                 try
                 {
-                    diag = await Http.GetFromJsonAsync<DiagPayload>("diag");
+                    var opts = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+                    diag = await Http.GetFromJsonAsync<DiagPayload>("diag", opts);
+                    if (diag is null)
+                    {
+                        _diagJson += "\n[debug] /diag returned null POCO";
+                    }
+                    else
+                    {
+                        _diagJson += $"\n[debug] diag.Audio={(diag.Audio is not null)}, diag.Image={(diag.Image is not null)}, diag.Jobs={(diag.Jobs is not null)}, configs={(diag.Configuration?.Count.ToString() ?? "null")}";
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    _diagJson = "Could not parse /diag response.";
+                    _diagJson = "Could not parse /diag response: " + ex.Message;
                 }
 
                 if (diag is not null)
@@ -277,7 +287,12 @@
                 try
                 {
                     using var rawResp = await Http.GetAsync("diag");
-                    _diagJson = await rawResp.Content.ReadAsStringAsync();
+                    var rawBody = await rawResp.Content.ReadAsStringAsync();
+                    _diagJson = rawBody;
+                    if (diag is not null)
+                    {
+                        _diagJson += $"\n[debug] diag.Audio={(diag.Audio != null)}, diag.Image={(diag.Image != null)}, diag.Jobs={(diag.Jobs != null)}, configs={diag.Configuration?.Count ?? -1}";
+                    }
                 }
                 catch
                 {
@@ -308,37 +323,38 @@
 
     private sealed class DiagPayload
     {
-        public string? Application { get; set; }
-        public string? Environment { get; set; }
-        public string? Version { get; set; }
-        public string? Runtime { get; set; }
-        public string? Os { get; set; }
-        public AudioPayload? Audio { get; set; }
-        public ImagePayload? Image { get; set; }
-        public JobsPayload? Jobs { get; set; }
-        public Dictionary<string, string?>? Configuration { get; set; }
+        [JsonPropertyName("application")] public string? Application { get; set; }
+        [JsonPropertyName("environment")] public string? Environment { get; set; }
+        [JsonPropertyName("version")] public string? Version { get; set; }
+        [JsonPropertyName("runtime")] public string? Runtime { get; set; }
+        [JsonPropertyName("os")] public string? Os { get; set; }
+        [JsonPropertyName("audio")] public AudioPayload? Audio { get; set; }
+        [JsonPropertyName("image")] public ImagePayload? Image { get; set; }
+        [JsonPropertyName("jobs")] public JobsPayload? Jobs { get; set; }
+        [JsonPropertyName("configuration")] public Dictionary<string, string?>? Configuration { get; set; }
     }
 
     private sealed class AudioPayload
     {
-        public string SupportedFormats { get; set; } = string.Empty;
-        public string[] SupportedExtensions { get; set; } = [];
-        public int MaxUploadMb { get; set; }
-        public int MaxBatchFiles { get; set; }
-        public int FrameMs { get; set; }
+        [JsonPropertyName("supportedFormats")] public string SupportedFormats { get; set; } = string.Empty;
+        [JsonPropertyName("supportedExtensions")] public string[] SupportedExtensions { get; set; } = [];
+        [JsonPropertyName("maxUploadMb")] public int MaxUploadMb { get; set; }
+        [JsonPropertyName("maxBatchFiles")] public int MaxBatchFiles { get; set; }
+        [JsonPropertyName("frameMs")] public int FrameMs { get; set; }
     }
 
     private sealed class ImagePayload
     {
-        public string[] SupportedFormats { get; set; } = [];
-        public string[] SupportedExtensions { get; set; } = [];
-        public int MaxUploadMb { get; set; }
-        public int MaxBatchFiles { get; set; }
-        public int MaxDimension { get; set; }
+        [JsonPropertyName("supportedFormats")] public string[] SupportedFormats { get; set; } = [];
+        [JsonPropertyName("supportedExtensions")] public string[] SupportedExtensions { get; set; } = [];
+        [JsonPropertyName("maxUploadMb")] public int MaxUploadMb { get; set; }
+        [JsonPropertyName("maxBatchFiles")] public int MaxBatchFiles { get; set; }
+        [JsonPropertyName("maxDimension")] public int MaxDimension { get; set; }
+        [JsonPropertyName("availableEngines")] public int[] AvailableEngines { get; set; } = [];
     }
 
     private sealed class JobsPayload
     {
-        public string? StorageRoot { get; set; }
+        [JsonPropertyName("storageRoot")] public string? StorageRoot { get; set; }
     }
 }

@@ -11,45 +11,51 @@
 
 <PageTitle>Cutout — PoChopAudio</PageTitle>
 
-<h1>Strip the background from photos</h1>
+<header class="page-header">
+    <div>
+        <h1 class="page-title">Strip the background from photos</h1>
+        <p class="page-subtitle">Drop one image or a folder. Each one is cut out on-device, then zips into one click.</p>
+    </div>
+</header>
 
-<section class="card dropzone" @ref="DropzoneElement">
-    <label class="picker">
-        <InputFile OnChange="OnFilesSelectedAsync" multiple
-                   accept="@_accept" disabled="@(_busy || _engines.Count == 0)" />
-        <span class="hint">
-            @AcceptHint
-        </span>
-        <span class="hint">Or drop a folder of images anywhere on this card.</span>
-    </label>
+<section class="card">
+    <div class="dropzone" @ref="DropzoneElement">
+        <div class="dropzone-picker">
+            <label class="picker-label">
+                <InputFile OnChange="OnFilesSelectedAsync" multiple
+                           accept="@_accept" disabled="@(_busy || _engines.Count == 0)" />
+                <span>Drop or browse — pick images, or a whole folder.</span>
+            </label>
+        </div>
+        <p class="hint" style="text-align:center; margin: 0.55rem 0 0;">@AcceptHint</p>
+    </div>
 
-    @if (_engines.Count > 0)
-    {
-        <label class="picker">
-            <span class="hint">Engine for this batch</span>
+    <div class="controls" style="margin-top: 1.25rem;">
+        <div class="control">
+            <span class="control-label">Engine</span>
             <select @bind="_engine" disabled="@_busy">
                 @foreach (var engine in _engines)
                 {
                     <option value="@engine">@EngineName(engine)</option>
                 }
             </select>
-        </label>
-    }
-
-    <label class="picker">
-        <span class="hint">Background fill (applies to every unrendered file)</span>
-        <div class="color-row">
-            <input type="color" @bind="_backgroundHex" disabled="@_busy" />
-            <button type="button" @onclick="ClearBackground" disabled="@_busy">Transparent</button>
-            <span class="hint">@(_backgroundHex is null ? "Transparent" : _backgroundHex)</span>
         </div>
-    </label>
 
-    <label class="picker">
-        <span class="hint">Output filename pattern</span>
-        <input type="text" @bind="_template" disabled="@_busy" placeholder="{stem}_cutout.png" />
-        <span class="hint">Tokens: <code>{stem}</code>, <code>{index}</code>, <code>{index:00}</code>, <code>{total}</code>, <code>{date}</code></span>
-    </label>
+        <div class="control">
+            <span class="control-label">Background fill</span>
+            <div class="color-row">
+                <input type="color" @bind="BackgroundHex" disabled="@_busy" />
+                <span class="color-hex">@(_backgroundHex ?? "transparent")</span>
+                <button type="button" class="subtle" @onclick="ClearBackground" disabled="@_busy">Transparent</button>
+            </div>
+        </div>
+
+        <div class="control">
+            <span class="control-label">Filename pattern</span>
+            <input type="text" @bind="_template" disabled="@_busy" placeholder="{stem}_cutout.png" />
+            <span class="hint">Tokens: <code>{stem}</code>, <code>{index}</code>, <code>{index:00}</code>, <code>{total}</code>, <code>{date}</code></span>
+        </div>
+    </div>
 
     @if (_busy)
     {
@@ -66,18 +72,18 @@
 {
     <section class="card">
         <header class="card-head">
-            <h2>Recent batches (Azurite)</h2>
-            <span class="meta">@_recentBatches.Count saved</span>
+            <h2>Recent batches</h2>
+            <span class="meta">@_recentBatches.Count saved in Azurite</span>
         </header>
-        <ul class="batch-list">
+        <ul class="recent-batches">
             @foreach (var b in _recentBatches)
             {
                 <li>
-                    <span class="meta">@b.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
-                    <span>@b.Feature</span>
-                    <span class="meta">@b.Jobs.Count file(s)</span>
-                    <button type="button" @onclick="() => ReopenBatch(b.BatchId)">Re-open</button>
-                    <button type="button" @onclick="() => ForgetBatch(b.BatchId)">Forget</button>
+                    <span class="when">@b.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    <span class="what">@b.Feature</span>
+                    <span class="how-many">@b.Jobs.Count file(s)</span>
+                    <button type="button" class="subtle" @onclick="() => ReopenBatch(b.BatchId)">Re-open</button>
+                    <button type="button" class="subtle" @onclick="() => ForgetBatch(b.BatchId)">Forget</button>
                 </li>
             }
         </ul>
@@ -87,23 +93,36 @@
 @if (_files.Count > 0)
 {
     <section class="card">
-        <header class="card-head">
-            <h2>Batch</h2>
-            <span class="meta">@Summary</span>
-        </header>
-
-        <div class="actions">
-            <button type="button" class="primary" @onclick="ReanalyzeAllAsync" disabled="@(_busy || _files.Count == 0)">
-                Re-cut all
-            </button>
-            <button type="button" @onclick="CompareViewToggle" disabled="@(_files.Count == 0)">
-                @(_showCompare ? "Hide compare" : "Compare view")
-            </button>
-            @if (ReadyFiles.Count > 0)
-            {
-                <a class="button primary" href="@BatchZipUrl">Download @ReadyFiles.Count cutout@(ReadyFiles.Count == 1 ? "" : "s") as ZIP</a>
-            }
-            <button type="button" @onclick="ClearAsync" disabled="@_busy">Clear all</button>
+        <div class="batch-summary-row">
+            <div>
+                <h2 class="batch-title">Batch</h2>
+                <p class="batch-summary">
+                    <strong>@_files.Count</strong> file(s)
+                    <span aria-hidden="true">·</span>
+                    <strong>@ReadyFiles.Count</strong> ready
+                    @if (AttentionCount > 0)
+                    {
+                        <span aria-hidden="true">·</span>
+                        <strong>@AttentionCount</strong>
+                        <text> need attention</text>
+                    }
+                </p>
+            </div>
+            <div class="batch-actions">
+                <button type="button" @onclick="CompareViewToggle">
+                    @(_showCompare ? "Hide compare" : "Compare view")
+                </button>
+                @if (ReadyFiles.Count > 0)
+                {
+                    <a class="button primary" href="@BatchZipUrl">
+                        Download @ReadyFiles.Count cutout@(ReadyFiles.Count == 1 ? "" : "s") as ZIP
+                    </a>
+                }
+                <button type="button" @onclick="ReanalyzeAllAsync" disabled="@(_busy || _files.Count == 0)">
+                    Re-cut all
+                </button>
+                <button type="button" class="subtle" @onclick="ClearAsync" disabled="@_busy">Clear all</button>
+            </div>
         </div>
 
         @if (AttentionCount > 0)

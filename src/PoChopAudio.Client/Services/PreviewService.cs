@@ -13,7 +13,7 @@ public sealed class PreviewService(IJSRuntime js)
     public const int MaxEdge = 512;
 
     /// <summary>Shrinks raw image bytes (e.g. the user's dropped file) to a small JPEG data URL.</summary>
-    public async Task<string> ShrinkBytesAsync(byte[] bytes, string mimeType)
+    public async Task<string> ShrinkBytesAsync(byte[] bytes, string mimeType, int? maxEdge = null)
     {
         if (bytes is null || bytes.Length == 0)
         {
@@ -22,7 +22,11 @@ public sealed class PreviewService(IJSRuntime js)
 
         try
         {
-            return await js.InvokeAsync<string>("pochopaudio.preview.shrinkBytes", bytes, mimeType);
+            return await js.InvokeAsync<string>(
+                "pochopaudio.preview.shrinkBytes",
+                bytes,
+                mimeType,
+                maxEdge ?? MaxEdge);
         }
         catch
         {
@@ -31,7 +35,7 @@ public sealed class PreviewService(IJSRuntime js)
     }
 
     /// <summary>Fetches the URL, decodes the image, and returns a small JPEG data URL.</summary>
-    public async Task<string> ShrinkUrlAsync(string url)
+    public async Task<string> ShrinkUrlAsync(string url, int? maxEdge = null)
     {
         if (string.IsNullOrEmpty(url))
         {
@@ -40,7 +44,10 @@ public sealed class PreviewService(IJSRuntime js)
 
         try
         {
-            return await js.InvokeAsync<string>("pochopaudio.preview.shrinkUrl", url);
+            return await js.InvokeAsync<string>(
+                "pochopaudio.preview.shrinkUrl",
+                url,
+                maxEdge ?? MaxEdge);
         }
         catch
         {

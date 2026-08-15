@@ -31,6 +31,9 @@ public sealed class EnginePicker
 
     public IReadOnlyList<CutoutEngine> AvailableEngines => _removers.Keys.ToArray();
 
+    /// <summary>Same as <see cref="AvailableEngines"/> but exposes a method-style accessor for diagnostic endpoints.</summary>
+    public IReadOnlyList<CutoutEngine> Snapshot() => AvailableEngines;
+
     public IBackgroundRemover? Resolve(CutoutEngine? requested)
     {
         if (requested is { } engine && _removers.TryGetValue(engine, out var remover))

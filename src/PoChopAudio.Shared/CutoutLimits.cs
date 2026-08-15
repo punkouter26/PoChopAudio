@@ -26,6 +26,9 @@ public static class CutoutLimits
 
     /// <summary>Default alpha multiplier for alpha matting.</summary>
     public const double DefaultAlphaMultiplier = 1.0;
+
+    /// <summary>File extensions the API will decode. Public so the diagnostics endpoint can list them.</summary>
+    public static readonly string[] AcceptedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
 }
 
 /// <summary>Which background-removal engine the API should run.</summary>

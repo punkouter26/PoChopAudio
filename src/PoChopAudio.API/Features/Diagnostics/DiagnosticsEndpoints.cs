@@ -1,5 +1,6 @@
 using System.Reflection;
 using PoChopAudio.API.Features.Chop;
+using PoChopAudio.API.Features.Cutout;
 using PoChopAudio.Shared;
 
 namespace PoChopAudio.API.Features.Diagnostics;
@@ -17,7 +18,7 @@ public static class DiagnosticsEndpoints
 
         // /diag is gated to Development on purpose — it leaks the temp-root path, format
         // support and runtime fingerprint. /health is enough for a liveness probe in any env.
-        var diag = app.MapGet("/diag", (IHostEnvironment environment, IConfiguration configuration, ChopJobStore store) =>
+        var diag = app.MapGet("/diag", (IHostEnvironment environment, IConfiguration configuration, ChopJobStore store, EnginePicker engines) =>
             TypedResults.Ok(new
             {
                 application = environment.ApplicationName,
@@ -33,6 +34,15 @@ public static class DiagnosticsEndpoints
                     maxUploadMb = ChopLimits.MaxUploadBytes / (1024 * 1024),
                     maxBatchFiles = ChopLimits.MaxBatchFiles,
                     frameMs = SegmentDetector.FrameMs,
+                },
+                image = new
+                {
+                    supportedFormats = string.Join(", ", CutoutLimits.AcceptedExtensions),
+                    supportedExtensions = CutoutLimits.AcceptedExtensions,
+                    maxUploadMb = CutoutLimits.MaxUploadBytes / (1024 * 1024),
+                    maxBatchFiles = CutoutLimits.MaxBatchFiles,
+                    maxDimension = CutoutLimits.MaxDimension,
+                    availableEngines = engines.Snapshot(),
                 },
                 jobs = new
                 {

@@ -9,11 +9,12 @@
     const JPEG_QUALITY = 0.85;
 
     // Decode arbitrary image bytes (Uint8Array) and re-encode as a small JPEG data URL whose
-    // longest edge is at most MAX_PREVIEW_EDGE px. Accepting raw bytes (not a data URL) keeps
+    // longest edge is at most maxEdge px. Accepting raw bytes (not a data URL) keeps
     // the C# -> JS interop payload small: a 2 MB JPEG stays a 2 MB Uint8Array, whereas a
     // data URL would be 2.6 MB of base64 and would push through the JS interop as a string.
-    async function shrinkBytes(bytes, mimeType) {
+    async function shrinkBytes(bytes, mimeType, maxEdge) {
         if (!bytes || bytes.byteLength === 0) return '';
+        const cap = Math.max(8, maxEdge || MAX_PREVIEW_EDGE);
         const blob = new Blob([bytes], { type: mimeType || 'image/jpeg' });
         const objectUrl = URL.createObjectURL(blob);
         try {
@@ -25,13 +26,13 @@
             });
 
             const longest = Math.max(img.naturalWidth, img.naturalHeight);
-            if (longest <= MAX_PREVIEW_EDGE) {
+            if (longest <= cap) {
                 // Already small. Read the file back as a data URL so the <img> tag has a
                 // self-contained source.
                 return await blobToDataUrl(blob);
             }
 
-            const scale = MAX_PREVIEW_EDGE / longest;
+            const scale = cap / longest;
             const w = Math.max(1, Math.round(img.naturalWidth * scale));
             const h = Math.max(1, Math.round(img.naturalHeight * scale));
 
@@ -49,12 +50,12 @@
     }
 
     // Fetch a URL, decode the image, re-encode as a small JPEG data URL.
-    async function shrinkUrl(url) {
+    async function shrinkUrl(url, maxEdge) {
         if (!url) return '';
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Preview fetch failed: ${response.status}`);
         const blob = await response.blob();
-        return shrinkBytes(new Uint8Array(await blob.arrayBuffer()), blob.type);
+        return shrinkBytes(new Uint8Array(await blob.arrayBuffer()), blob.type, maxEdge);
     }
 
     function blobToDataUrl(blob) {

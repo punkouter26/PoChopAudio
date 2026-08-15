@@ -1,77 +1,344 @@
 @page "/health-status"
+@implements IDisposable
 @inject HttpClient Http
 
 <PageTitle>System Health & Connection Status · PoChopAudio</PageTitle>
 
-<section class="card">
-    <header class="card-head">
-        <h2>System Health & Connection Status</h2>
-        <span class="meta">NET_RULES §3 Compliance</span>
-    </header>
-
-    @if (_loading)
-    {
-        <p class="status" role="status">Checking server health and connection status…</p>
-    }
-    else
-    {
-        <div class="health-grid">
-            <div class="health-card @(_isHealthy ? "ok" : "fail")">
-                <span class="health-title">Backend API Health</span>
-                <span class="health-val">@(_isHealthy ? "HEALTHY (200 OK)" : "UNREACHABLE")</span>
-            </div>
-
-            <div class="health-card ok">
-                <span class="health-title">Blazor WASM Client</span>
-                <span class="health-val">RUNNING (Client-side)</span>
-            </div>
-        </div>
-
-        @if (_diagJson is not null)
+<header class="page-header">
+    <div>
+        <h1 class="page-title">System Health</h1>
+        <p class="page-subtitle">
+            Each subsystem is probed live. Auto-refreshes every 10 seconds.
+            @if (_lastChecked is { } ts)
+            {
+                <span> · last checked at <strong>@ts.ToString("HH:mm:ss")</strong></span>
+            }
+        </p>
+    </div>
+    <button type="button" class="subtle" @onclick="RefreshAsync" disabled="@_probing">
+        @if (_probing)
         {
-            <h3>Diagnostic Details (Masked Secrets)</h3>
-            <pre class="diag-code">@_diagJson</pre>
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Checking…</span>
         }
-    }
+        else
+        {
+            <span>↻</span>
+            <span>Refresh now</span>
+        }
+    </button>
+</header>
 
-    <div class="actions" style="margin-top: 1rem;">
-        <button type="button" class="primary" @onclick="CheckHealthAsync">Refresh Status</button>
-        <a class="button" href="/">Back to PoChopAudio</a>
+@{
+    var overall = _allOk ? "ok" : (_apiOk ? "partial" : "fail");
+}
+
+<section class="status-hero status-@overall">
+    <div class="status-pulse" aria-hidden="true">
+        <span class="dot @overall"></span>
+    </div>
+    <div class="status-text">
+        <h2>@OverallTitle</h2>
+        <p>@OverallDescription</p>
+    </div>
+    @if (_apiLatencyMs is { } lat)
+    {
+        <div class="status-metric">
+            <span class="metric-label">API latency</span>
+            <span class="metric-val @LatencyClass(lat)">@lat<span class="metric-unit">ms</span></span>
+        </div>
+    }
+</section>
+
+<section class="dashboard">
+    <h3 class="section-title">Subsystems</h3>
+    <div class="health-grid">
+        <HealthTile Title="Backend API" Icon="🛰"
+                    Ok="@_apiOk" Detail="@(_apiOk ? $"Responded with HTTP {_apiStatus}" : "Did not respond on /health")"
+                    StatusText="@(_apiOk ? "HEALTHY" : "DOWN")"
+                    LatencyMs="@_apiLatencyMs" />
+
+        <HealthTile Title="Blazor WASM Client" Icon="🧩"
+                    Ok="true" Detail="Running in this browser tab (Client-side rendering)"
+                    StatusText="RUNNING" />
+
+        <HealthTile Title="Azurite Storage" Icon="🗄"
+                    Ok="@_azuriteOk" Detail="@_azuriteDetail"
+                    StatusText="@(_azuriteOk ? "REACHABLE" : "UNREACHABLE")" />
+
+        <HealthTile Title="ONNX Background Model" Icon="🧠"
+                    Ok="@_onnxOk" Detail="@_onnxDetail"
+                    StatusText="@(_onnxOk ? "LOADED" : "NOT LOADED")" />
+
+        <HealthTile Title="Audio Decoder" Icon="🎵"
+                    Ok="@_audioOk" Detail="@_audioDetail"
+                    StatusText="@(_audioOk ? "READY" : "UNAVAILABLE")" />
+
+        <HealthTile Title="Image Decoder" Icon="🖼"
+                    Ok="@_imageOk" Detail="@_imageDetail"
+                    StatusText="@(_imageOk ? "READY" : "UNAVAILABLE")" />
+    </div>
+</section>
+
+@if (_audioCaps is not null || _imageCaps is not null)
+{
+    <section class="dashboard">
+        <h3 class="section-title">Capabilities</h3>
+        <div class="caps-grid">
+            @if (_audioCaps is { } a)
+            {
+                <div class="cap-card">
+                    <h4>Audio</h4>
+                    <ul>
+                        <li><strong>Formats:</strong> @a.SupportedFormats</li>
+                        <li><strong>Max upload:</strong> @a.MaxUploadMb MB per file</li>
+                        <li><strong>Max batch:</strong> @a.MaxBatchFiles files</li>
+                        <li><strong>Frame size:</strong> @a.FrameMs ms</li>
+                    </ul>
+                </div>
+            }
+            @if (_imageCaps is { } i)
+            {
+                <div class="cap-card">
+                    <h4>Image</h4>
+                    <ul>
+                        <li><strong>Formats:</strong> @string.Join(", ", i.SupportedExtensions)</li>
+                        <li><strong>Max upload:</strong> @i.MaxUploadMb MB per file</li>
+                        <li><strong>Max dimension:</strong> @i.MaxDimension px</li>
+                        <li><strong>Max batch:</strong> @i.MaxBatchFiles files</li>
+                    </ul>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@if (_diagConfig is not null && _diagConfig.Count > 0)
+{
+    <section class="dashboard">
+        <h3 class="section-title">Configuration (secrets masked)</h3>
+        <div class="config-table-wrap">
+            <table class="config-table">
+                <thead>
+                    <tr><th>Key</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var kv in _diagConfig)
+                    {
+                        var isSecret = kv.Value?.StartsWith("***") == true;
+                        <tr class="@(isSecret ? "is-secret" : null)">
+                            <td>@kv.Key</td>
+                            <td><code>@kv.Value</code></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+<section class="dashboard">
+    <h3 class="section-title">Raw diagnostics</h3>
+    <p class="hint">Full payload from <code>/diag</code>. Useful when filing an issue.</p>
+    <pre class="diag-code">@(_diagJson ?? "Loading…")</pre>
+</section>
+
+<section class="dashboard">
+    <div class="batch-actions">
+        <a class="button" href="/">← Back to PoChopAudio</a>
     </div>
 </section>
 
 @code {
-    private bool _loading = true;
-    private bool _isHealthy;
+    private System.Timers.Timer? _timer;
+    private bool _probing;
+    private bool _apiOk;
+    private int _apiStatus;
+    private long? _apiLatencyMs;
+    private bool _azuriteOk;
+    private string _azuriteDetail = "Not checked";
+    private bool _onnxOk;
+    private string _onnxDetail = "Not checked";
+    private bool _audioOk;
+    private string _audioDetail = "Not checked";
+    private bool _imageOk;
+    private string _imageDetail = "Not checked";
+    private AudioCaps? _audioCaps;
+    private ImageCaps? _imageCaps;
+    private SortedDictionary<string, string?>? _diagConfig;
     private string? _diagJson;
+    private DateTime? _lastChecked;
+    private bool _allOk;
+
+    private string OverallTitle => _allOk
+        ? "All systems operational"
+        : _apiOk ? "Some subsystems need attention" : "Backend unreachable";
+    private string OverallDescription => _allOk
+        ? "Audio chops, image cutouts, and persistent batches are all healthy."
+        : _apiOk ? "The API is responding but one or more subsystems below need attention."
+        : "The API did not respond. Cutout and Chop jobs cannot run until it returns.";
+
+    private static string LatencyClass(long ms) => ms switch
+    {
+        < 100 => "good",
+        < 300 => "ok",
+        _ => "slow"
+    };
 
     protected override async Task OnInitializedAsync()
     {
-        await CheckHealthAsync();
+        await RefreshAsync();
+        _timer = new System.Timers.Timer(10_000) { AutoReset = true };
+        _timer.Elapsed += async (_, _) =>
+        {
+            try { await InvokeAsync(RefreshAsync); } catch { /* swallow */ }
+        };
+        _timer.Start();
     }
 
-    private async Task CheckHealthAsync()
+    private async Task RefreshAsync()
     {
-        _loading = true;
+        _probing = true;
         try
         {
-            var res = await Http.GetAsync("health");
-            _isHealthy = res.IsSuccessStatusCode;
-
-            var diagRes = await Http.GetAsync("diag");
-            if (diagRes.IsSuccessStatusCode)
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
             {
-                _diagJson = await diagRes.Content.ReadAsStringAsync();
+                using var healthResp = await Http.GetAsync("health", HttpCompletionOption.ResponseHeadersRead);
+                sw.Stop();
+                _apiLatencyMs = sw.ElapsedMilliseconds;
+                _apiStatus = (int)healthResp.StatusCode;
+                _apiOk = healthResp.IsSuccessStatusCode;
             }
-        }
-        catch
-        {
-            _isHealthy = false;
-            _diagJson = null;
+            catch
+            {
+                sw.Stop();
+                _apiLatencyMs = sw.ElapsedMilliseconds;
+                _apiOk = false;
+            }
+
+            if (_apiOk)
+            {
+                DiagPayload? diag = null;
+                try
+                {
+                    diag = await Http.GetFromJsonAsync<DiagPayload>("diag");
+                }
+                catch
+                {
+                    _diagJson = "Could not parse /diag response.";
+                }
+
+                if (diag is not null)
+                {
+                    _audioOk = !string.IsNullOrWhiteSpace(diag.Audio?.SupportedFormats);
+                    _audioDetail = diag.Audio?.SupportedFormats ?? "no formats reported";
+                    _audioCaps = diag.Audio is { } aa
+                        ? new AudioCaps(aa.SupportedFormats, aa.MaxUploadMb, aa.MaxBatchFiles, aa.FrameMs)
+                        : null;
+
+                    _imageOk = diag.Image is not null && diag.Image.SupportedExtensions.Length > 0;
+                    _imageDetail = diag.Image is null
+                        ? "No image endpoint reported"
+                        : $"{diag.Image.SupportedExtensions.Length} format(s), max {diag.Image.MaxDimension}px";
+                    _imageCaps = diag.Image is { } ii
+                        ? new ImageCaps(ii.SupportedExtensions, ii.MaxUploadMb, ii.MaxBatchFiles, ii.MaxDimension)
+                        : null;
+
+                    _azuriteOk = diag.Jobs?.StorageRoot is not null;
+                    _azuriteDetail = diag.Jobs?.StorageRoot is { } r
+                        ? $"Storage root: {r}"
+                        : "No Azurite endpoint detected in /diag";
+
+                    try
+                    {
+                        var caps = await Http.GetFromJsonAsync<CutoutCapabilities>("api/cutout/capabilities");
+                        _onnxOk = caps is not null && caps.AvailableEngines is { Count: > 0 };
+                        _onnxDetail = caps is null
+                            ? "/api/cutout/capabilities did not respond"
+                            : $"{caps.AvailableEngines.Count} engine(s): {string.Join(", ", caps.AvailableEngines)}";
+                    }
+                    catch
+                    {
+                        _onnxOk = false;
+                        _onnxDetail = "Cutout endpoint unreachable";
+                    }
+
+                    if (diag.Configuration is { } cfg)
+                    {
+                        _diagConfig = new SortedDictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var k in cfg.Keys)
+                        {
+                            _diagConfig[k] = cfg[k];
+                        }
+                    }
+                }
+
+                try
+                {
+                    using var rawResp = await Http.GetAsync("diag");
+                    _diagJson = await rawResp.Content.ReadAsStringAsync();
+                }
+                catch
+                {
+                    _diagJson = "Could not read raw /diag payload.";
+                }
+            }
+            else
+            {
+                _audioOk = _imageOk = _azuriteOk = _onnxOk = false;
+                _azuriteDetail = _onnxDetail = _audioDetail = _imageDetail = "API unreachable";
+                _diagJson = "API unreachable; cannot fetch /diag.";
+                _diagConfig = null;
+            }
+
+            _allOk = _apiOk && _audioOk && _imageOk && _azuriteOk && _onnxOk;
         }
         finally
         {
-            _loading = false;
+            _probing = false;
+            _lastChecked = DateTime.Now;
         }
+    }
+
+    public void Dispose() => _timer?.Dispose();
+
+    private sealed record AudioCaps(string SupportedFormats, int MaxUploadMb, int MaxBatchFiles, int FrameMs);
+    private sealed record ImageCaps(string[] SupportedExtensions, int MaxUploadMb, int MaxBatchFiles, int MaxDimension);
+
+    private sealed class DiagPayload
+    {
+        public string? Application { get; set; }
+        public string? Environment { get; set; }
+        public string? Version { get; set; }
+        public string? Runtime { get; set; }
+        public string? Os { get; set; }
+        public AudioPayload? Audio { get; set; }
+        public ImagePayload? Image { get; set; }
+        public JobsPayload? Jobs { get; set; }
+        public Dictionary<string, string?>? Configuration { get; set; }
+    }
+
+    private sealed class AudioPayload
+    {
+        public string SupportedFormats { get; set; } = string.Empty;
+        public string[] SupportedExtensions { get; set; } = [];
+        public int MaxUploadMb { get; set; }
+        public int MaxBatchFiles { get; set; }
+        public int FrameMs { get; set; }
+    }
+
+    private sealed class ImagePayload
+    {
+        public string[] SupportedFormats { get; set; } = [];
+        public string[] SupportedExtensions { get; set; } = [];
+        public int MaxUploadMb { get; set; }
+        public int MaxBatchFiles { get; set; }
+        public int MaxDimension { get; set; }
+    }
+
+    private sealed class JobsPayload
+    {
+        public string? StorageRoot { get; set; }
     }
 }

@@ -1,0 +1,81 @@
+.health-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem 1.1rem;
+    border-radius: var(--po-radius-lg);
+    border: 1px solid var(--po-border);
+    background: var(--po-panel);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+    position: relative;
+}
+
+.health-card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--po-shadow-md);
+    border-color: var(--po-border-strong);
+}
+
+.health-card.ok { border-left: 3px solid var(--po-success); }
+.health-card.fail { border-left: 3px solid var(--po-danger); }
+
+.health-head {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.health-icon {
+    font-size: 1.15rem;
+    line-height: 1;
+}
+
+.health-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--po-text);
+    flex: 1;
+}
+
+.health-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.health-pill.ok { background: var(--po-success-soft); color: var(--po-success); }
+.health-pill.fail { background: var(--po-danger-soft); color: var(--po-danger); }
+
+.health-body { flex: 1; }
+
+.health-detail {
+    font-size: 0.83rem;
+    color: var(--po-text-muted);
+    line-height: 1.4;
+}
+
+.health-foot {
+    border-top: 1px dashed var(--po-border);
+    padding-top: 0.45rem;
+    margin-top: auto;
+}
+
+.health-lat {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--po-text);
+    font-size: 0.95rem;
+}
+
+.health-lat-unit {
+    color: var(--po-text-muted);
+    font-size: 0.72rem;
+    margin-left: 0.1rem;
+    font-weight: 500;
+}

@@ -13,14 +13,35 @@
         <button type="button" class="disclosure" @onclick="Toggle"
                 aria-expanded="@File.Expanded" aria-controls="@BodyId" disabled="@(!CanExpand)">
             <span class="chevron" aria-hidden="true">@(File.Expanded ? "▾" : "▸")</span>
-            <span class="file-name">@File.FileName</span>
-            <span class="meta">
-                @if (File.Upload is { } upload)
-                {
-                    @($"{upload.Width}×{upload.Height} · {FormatBytes(upload.Bytes)}")
-                }
+            @if (OriginalThumbnailSource is not null)
+            {
+                <img class="thumb" src="@OriginalThumbnailSource" alt="" aria-hidden="true" />
+            }
+            else
+            {
+                <span class="thumb" aria-hidden="true"></span>
+            }
+            <span class="file-info">
+                <span class="file-name">@File.FileName</span>
+                <span class="meta">
+                    @if (File.Upload is { } upload)
+                    {
+                        @($"{upload.Width}×{upload.Height} · {FormatBytes(upload.Bytes)}")
+                    }
+                </span>
             </span>
         </button>
+
+        @if (File.IsReady && CutoutThumbnailSource is not null)
+        {
+            <div class="thumb-pair" aria-label="before and after preview">
+                <img class="thumb" src="@OriginalThumbnailSource" alt="Original" title="Original" />
+                <span class="thumb-sep" aria-hidden="true">→</span>
+                <div class="thumb checker">
+                    <img class="thumb" src="@CutoutThumbnailSource" alt="Cutout" title="Cutout" />
+                </div>
+            </div>
+        }
 
         <span class="badge @BadgeClass" role="status">@StatusText</span>
 
@@ -112,7 +133,10 @@
 
     private string? OriginalPreviewSource { get; set; }
     private string? CutoutPreviewSource { get; set; }
+    private string? OriginalThumbnailSource { get; set; }
+    private string? CutoutThumbnailSource { get; set; }
     private int _previewVersion;
+    private int _thumbVersion;
     private CutoutProgress? _progress;
     private PreviewMode _previewMode = PreviewMode.Side;
 
@@ -158,10 +182,36 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // Thumbnail in the collapsed header — load as soon as we have bytes,
+        // even when the card is collapsed, so the user can see what's coming.
+        if (File.Upload is not null && _thumbVersion != File.Version)
+        {
+            _thumbVersion = File.Version;
+            await LoadThumbnailsAsync();
+        }
+
         if (File.Expanded && File.Upload is not null && _previewVersion != File.Version)
         {
             _previewVersion = File.Version;
             await LoadPreviewsAsync();
+        }
+    }
+
+    private async Task LoadThumbnailsAsync()
+    {
+        var originalBytes = OriginalBytesAccessor?.Invoke();
+        if (originalBytes is { Length: > 0 })
+        {
+            OriginalThumbnailSource = await Preview.ShrinkBytesAsync(originalBytes, File.Upload!.ContentType, maxEdge: 48);
+        }
+
+        if (File.IsReady)
+        {
+            CutoutThumbnailSource = await Preview.ShrinkUrlAsync(ImageUrl, maxEdge: 48);
+        }
+        else
+        {
+            CutoutThumbnailSource = null;
         }
     }
 
@@ -186,6 +236,11 @@
     private async Task Toggle()
     {
         File.Expanded = !File.Expanded;
+        if (File.Upload is not null && _thumbVersion != File.Version)
+        {
+            _thumbVersion = File.Version;
+            await LoadThumbnailsAsync();
+        }
         if (File.Expanded && File.Upload is not null && _previewVersion != File.Version)
         {
             _previewVersion = File.Version;

@@ -1,0 +1,243 @@
+@using PoChopAudio.Client.Models
+@using PoChopAudio.Client.Services
+@using PoChopAudio.Shared
+
+@inject CutoutClient Client
+@inject PreviewService Preview
+@inject ProgressStream Progress
+
+@* One image in the batch: preview, knobs, single download. *@
+
+<section class="card file @StatusClass">
+    <header class="file-head">
+        <button type="button" class="disclosure" @onclick="Toggle"
+                aria-expanded="@File.Expanded" aria-controls="@BodyId" disabled="@(!CanExpand)">
+            <span class="chevron" aria-hidden="true">@(File.Expanded ? "▾" : "▸")</span>
+            <span class="file-name">@File.FileName</span>
+            <span class="meta">
+                @if (File.Upload is { } upload)
+                {
+                    @($"{upload.Width}×{upload.Height} · {FormatBytes(upload.Bytes)}")
+                }
+            </span>
+        </button>
+
+        <span class="badge @BadgeClass" role="status">@StatusText</span>
+
+        @if (File.IsReady)
+        {
+            <a class="button" href="@ImageUrl" download>Download</a>
+        }
+    </header>
+
+    @if (File.Error is { } error)
+    {
+        <p class="error" role="alert">@error</p>
+    }
+
+    @if (File.Expanded && File.Upload is { } expandedUpload)
+    {
+        <div id="@BodyId" class="file-body">
+            <div class="preview-mode">
+                <label class="knob-toggle">
+                    <input type="radio" name="preview-mode-@File.Upload.JobId" value="side" checked="@(_previewMode == PreviewMode.Side)" @onchange="@(() => _previewMode = PreviewMode.Side)" /> Side by side
+                </label>
+                <label class="knob-toggle">
+                    <input type="radio" name="preview-mode-@File.Upload.JobId" value="slider" checked="@(_previewMode == PreviewMode.Slider)" @onchange="@(() => _previewMode = PreviewMode.Slider)" /> Slider compare
+                </label>
+            </div>
+
+            @if (_previewMode == PreviewMode.Slider && OriginalPreviewSource is not null && CutoutPreviewSource is not null)
+            {
+                <BeforeAfterSlider OriginalUrl="@OriginalPreviewSource" CutoutUrl="@CutoutPreviewSource" />
+            }
+            else
+            {
+                <div class="preview-grid">
+                    <figure>
+                        <figcaption>Original @if (OriginalPreviewSource is not null) { <span class="hint">· preview @PreviewService.MaxEdge px</span> }</figcaption>
+                        @if (OriginalPreviewSource is not null)
+                        {
+                            <img class="preview" src="@OriginalPreviewSource" alt="Original @File.FileName" />
+                        }
+                        else
+                        {
+                            <p class="hint">Loading…</p>
+                        }
+                    </figure>
+                    <figure>
+                        <figcaption>Cutout @if (CutoutPreviewSource is not null) { <span class="hint">· @DimensionsText</span> }</figcaption>
+                        <div class="checker">
+                            @if (CutoutPreviewSource is not null)
+                            {
+                                <img class="preview" src="@CutoutPreviewSource" alt="Cutout @File.FileName" />
+                            }
+                            else
+                            {
+                                <p class="hint">@StatusText</p>
+                            }
+                        </div>
+                    </figure>
+                </div>
+            }
+
+            @if (_progress is not null)
+            {
+                <div class="progress">
+                    <div class="progress-bar" style="--p: @(_progress.Percent * 100)%"></div>
+                    <span class="progress-text">@_progress.Phase (@((_progress.Percent * 100).ToString("F0"))%)</span>
+                </div>
+            }
+
+            <h3>Settings for this file</h3>
+
+            <CutoutKnobs Options="File.Settings" Disabled="@File.Processing" Changed="OnKnobsChangedAsync" />
+
+            <div class="actions">
+                <button type="button" class="primary" disabled="@File.Processing" @onclick="ReanalyzeAsync">Re-cut this file</button>
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public required CutoutFileState File { get; set; }
+
+    [Parameter]
+    public EventCallback<CutoutFileState> Reanalyze { get; set; }
+
+    [Parameter]
+    public Func<byte[]>? OriginalBytesAccessor { get; set; }
+
+    private string? OriginalPreviewSource { get; set; }
+    private string? CutoutPreviewSource { get; set; }
+    private int _previewVersion;
+    private CutoutProgress? _progress;
+    private PreviewMode _previewMode = PreviewMode.Side;
+
+    private enum PreviewMode { Side, Slider }
+
+    private bool CanExpand => File.Upload is not null;
+
+    private string BodyId => $"cutout-{File.Upload?.JobId ?? Guid.NewGuid().ToString("N")}";
+
+    private string StatusText => File.Error is not null
+        ? "Failed"
+        : File.Processing
+            ? "Processing"
+            : File.IsReady
+                ? "Ready"
+                : File.Upload is null
+                    ? "Queued"
+                    : "Uploaded";
+
+    private string StatusClass => File.Error is not null
+        ? "is-error"
+        : File.Processing
+            ? "is-busy"
+            : File.IsReady
+                ? "is-ready"
+                : "is-pending";
+
+    private string BadgeClass => File.IsReady ? "ok" : File.Error is not null ? "bad" : "pending";
+
+    private string ImageUrl => File.Upload is null ? "#" : Client.ImageUrl(File.Upload.JobId) + "?v=" + File.Version;
+
+    private string DimensionsText
+    {
+        get
+        {
+            if (File.Result is null) return string.Empty;
+            var trimmed = File.Result.TrimmedWidth < File.Upload?.Width || File.Result.TrimmedHeight < File.Upload?.Height;
+            return trimmed
+                ? $"trimmed to {File.Result.TrimmedWidth}×{File.Result.TrimmedHeight}"
+                : $"preview @PreviewService.MaxEdge px";
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (File.Expanded && File.Upload is not null && _previewVersion != File.Version)
+        {
+            _previewVersion = File.Version;
+            await LoadPreviewsAsync();
+        }
+    }
+
+    private async Task LoadPreviewsAsync()
+    {
+        var originalBytes = OriginalBytesAccessor?.Invoke();
+        if (originalBytes is { Length: > 0 })
+        {
+            OriginalPreviewSource = await Preview.ShrinkBytesAsync(originalBytes, File.Upload!.ContentType);
+        }
+
+        if (File.IsReady)
+        {
+            CutoutPreviewSource = await Preview.ShrinkUrlAsync(ImageUrl);
+        }
+        else
+        {
+            CutoutPreviewSource = null;
+        }
+    }
+
+    private async Task Toggle()
+    {
+        File.Expanded = !File.Expanded;
+        if (File.Expanded && File.Upload is not null && _previewVersion != File.Version)
+        {
+            _previewVersion = File.Version;
+            await LoadPreviewsAsync();
+        }
+    }
+
+    private async Task OnKnobsChangedAsync()
+    {
+        await ReanalyzeAsync();
+    }
+
+    private async Task ReanalyzeAsync()
+    {
+        if (File.Upload is null)
+        {
+            return;
+        }
+
+        _progress = new CutoutProgress("starting", 0.05);
+        await Reanalyze.InvokeAsync(File);
+
+        // Subscribe to the progress stream so the user sees the per-file status.
+        _ = StreamProgressAsync(File.Upload.JobId);
+    }
+
+    private async Task StreamProgressAsync(string jobId)
+    {
+        try
+        {
+            await foreach (var update in Progress.Subscribe(jobId))
+            {
+                _progress = update;
+                await InvokeAsync(StateHasChanged);
+                if (update.Phase == "done") break;
+            }
+        }
+        catch
+        {
+            // Stream may be cut when the job is removed; ignore.
+        }
+        finally
+        {
+            _progress = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024d:F1} KB";
+        return $"{bytes / 1024d / 1024d:F1} MB";
+    }
+}

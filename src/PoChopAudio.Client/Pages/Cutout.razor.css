@@ -1,0 +1,190 @@
+.h1 {
+    font-size: 1.6rem;
+    margin-bottom: 1.25rem;
+}
+
+h2 {
+    font-size: 1.15rem;
+}
+
+.picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.color-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+input[type="color"] {
+    width: 48px;
+    height: 32px;
+    border: 1px solid var(--pico-muted-border-color, #ccc);
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+}
+
+input[type="text"] {
+    font-family: var(--pico-font-family-monospace, monospace);
+}
+
+.dropzone {
+    border: 1px dashed transparent;
+    transition: border-color 0.2s ease;
+}
+
+.dropzone.is-drag-over {
+    border-color: var(--pico-primary, #0078d4);
+    background: var(--pico-card-background-color, rgba(0, 120, 212, 0.05));
+}
+
+.preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.preview-grid figure {
+    margin: 0;
+}
+
+.preview-grid figcaption {
+    font-size: 0.85rem;
+    color: var(--pico-muted-color, #666);
+    margin-bottom: 0.25rem;
+}
+
+.preview {
+    max-width: 100%;
+    max-height: 360px;
+    width: auto;
+    height: auto;
+    display: block;
+    border-radius: 6px;
+    background: white;
+    object-fit: contain;
+}
+
+.preview-mode {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.preview-mode label {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.checker {
+    background-image:
+        linear-gradient(45deg, #d0d0d0 25%, transparent 25%),
+        linear-gradient(-45deg, #d0d0d0 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #d0d0d0 75%),
+        linear-gradient(-45deg, transparent 75%, #d0d0d0 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    border-radius: 6px;
+    padding: 0.25rem;
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.progress {
+    position: relative;
+    height: 12px;
+    background: var(--pico-muted-border-color, #ddd);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 0.5rem 0;
+}
+
+.progress-bar {
+    position: absolute;
+    inset: 0;
+    width: var(--p, 0%);
+    background: var(--pico-primary, #0078d4);
+    transition: width 0.2s ease;
+}
+
+.progress-text {
+    font-size: 0.75rem;
+    color: var(--pico-muted-color, #666);
+}
+
+.batch-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.batch-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--pico-muted-border-color, #eee);
+}
+
+.batch-list li:last-child {
+    border-bottom: none;
+}
+
+.compare-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.5rem;
+}
+
+.compare-tile {
+    border: 1px solid var(--pico-muted-border-color, #ddd);
+    border-radius: 6px;
+    padding: 0.5rem;
+    background: var(--pico-card-background-color, white);
+}
+
+.compare-tile.is-ready { border-color: #2c8a3a; }
+.compare-tile.is-error { border-color: #c43c3c; }
+.compare-tile.is-busy { border-color: #0078d4; }
+
+.compare-name {
+    font-size: 0.75rem;
+    color: var(--pico-muted-color, #666);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.compare-thumbs {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0.25rem 0;
+}
+
+.compare-thumb {
+    width: 50%;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: white;
+}
+
+.compare-status {
+    font-size: 0.7rem;
+    color: var(--pico-muted-color, #666);
+}
+
+.knob-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}

@@ -1,0 +1,526 @@
+@page "/cutout"
+@using PoChopAudio.Client.Components
+@using PoChopAudio.Client.Models
+@using PoChopAudio.Client.Services
+@using PoChopAudio.Shared
+@inject CutoutClient Client
+@inject BrowserOnnxRuntime BrowserOnnx
+@inject DropZoneService DropZone
+@inject HttpClient Http
+@implements IAsyncDisposable
+
+<PageTitle>Cutout — PoChopAudio</PageTitle>
+
+<h1>Strip the background from photos</h1>
+
+<section class="card dropzone" @ref="DropzoneElement">
+    <label class="picker">
+        <InputFile OnChange="OnFilesSelectedAsync" multiple
+                   accept="@_accept" disabled="@(_busy || _engines.Count == 0)" />
+        <span class="hint">
+            @AcceptHint
+        </span>
+        <span class="hint">Or drop a folder of images anywhere on this card.</span>
+    </label>
+
+    @if (_engines.Count > 0)
+    {
+        <label class="picker">
+            <span class="hint">Engine for this batch</span>
+            <select @bind="_engine" disabled="@_busy">
+                @foreach (var engine in _engines)
+                {
+                    <option value="@engine">@EngineName(engine)</option>
+                }
+            </select>
+        </label>
+    }
+
+    <label class="picker">
+        <span class="hint">Background fill (applies to every unrendered file)</span>
+        <div class="color-row">
+            <input type="color" @bind="_backgroundHex" disabled="@_busy" />
+            <button type="button" @onclick="ClearBackground" disabled="@_busy">Transparent</button>
+            <span class="hint">@(_backgroundHex is null ? "Transparent" : _backgroundHex)</span>
+        </div>
+    </label>
+
+    <label class="picker">
+        <span class="hint">Output filename pattern</span>
+        <input type="text" @bind="_template" disabled="@_busy" placeholder="{stem}_cutout.png" />
+        <span class="hint">Tokens: <code>{stem}</code>, <code>{index}</code>, <code>{index:00}</code>, <code>{total}</code>, <code>{date}</code></span>
+    </label>
+
+    @if (_busy)
+    {
+        <p class="status" role="status">@_status</p>
+    }
+
+    @if (_error is not null)
+    {
+        <p class="error" role="alert">@_error</p>
+    }
+</section>
+
+@if (_recentBatches.Count > 0)
+{
+    <section class="card">
+        <header class="card-head">
+            <h2>Recent batches (Azurite)</h2>
+            <span class="meta">@_recentBatches.Count saved</span>
+        </header>
+        <ul class="batch-list">
+            @foreach (var b in _recentBatches)
+            {
+                <li>
+                    <span class="meta">@b.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    <span>@b.Feature</span>
+                    <span class="meta">@b.Jobs.Count file(s)</span>
+                    <button type="button" @onclick="() => ReopenBatch(b.BatchId)">Re-open</button>
+                    <button type="button" @onclick="() => ForgetBatch(b.BatchId)">Forget</button>
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+@if (_files.Count > 0)
+{
+    <section class="card">
+        <header class="card-head">
+            <h2>Batch</h2>
+            <span class="meta">@Summary</span>
+        </header>
+
+        <div class="actions">
+            <button type="button" class="primary" @onclick="ReanalyzeAllAsync" disabled="@(_busy || _files.Count == 0)">
+                Re-cut all
+            </button>
+            <button type="button" @onclick="CompareViewToggle" disabled="@(_files.Count == 0)">
+                @(_showCompare ? "Hide compare" : "Compare view")
+            </button>
+            @if (ReadyFiles.Count > 0)
+            {
+                <a class="button primary" href="@BatchZipUrl">Download @ReadyFiles.Count cutout@(ReadyFiles.Count == 1 ? "" : "s") as ZIP</a>
+            }
+            <button type="button" @onclick="ClearAsync" disabled="@_busy">Clear all</button>
+        </div>
+
+        @if (AttentionCount > 0)
+        {
+            <p class="warn" role="alert">
+                @AttentionCount of @_files.Count file(s) need attention. They are still included in the ZIP.
+            </p>
+        }
+    </section>
+
+    @if (_showCompare)
+    {
+        <section class="card compare-grid">
+            @foreach (var file in _files)
+            {
+                <div class="compare-tile @StatusOf(file)">
+                    <div class="compare-name">@file.FileName</div>
+                    <div class="compare-thumbs">
+                        @if (OriginalBytesAccessorFor(file) is { Length: > 0 } originalBytes)
+                        {
+                            <img class="compare-thumb" src="@CompareDataUrl(originalBytes, file)" alt="" />
+                        }
+                        @if (file.IsReady)
+                        {
+                            <img class="compare-thumb checker" src="@Client.ImageUrl(file.Upload!.JobId)?v=@file.Version" alt="" />
+                        }
+                    </div>
+                    <div class="compare-status">@CompareStatusText(file)</div>
+                </div>
+            }
+        </section>
+    }
+    else
+    {
+        @foreach (var file in _files)
+        {
+            <CutoutFileCard @key="file"
+                            File="file"
+                            OriginalBytesAccessor="@(() => GetOriginalBytes(file))"
+                            Reanalyze="ReanalyzeOneAsync" />
+        }
+    }
+}
+
+@code {
+    private readonly List<CutoutFileState> _files = [];
+    private readonly Dictionary<string, byte[]> _originalBytesByName = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<BatchEntry> _recentBatches = [];
+
+    private bool _busy;
+    private string _status = string.Empty;
+    private string? _error;
+
+    private CutoutCapabilities? _capabilities;
+    private IReadOnlyList<CutoutEngine> _engines = [];
+    private CutoutEngine _engine = CutoutEngine.OnnxU2Net;
+    private string? _backgroundHex;
+    private string _template = "{stem}_cutout.png";
+    private bool _showCompare;
+
+    private string _accept = ".jpg,.jpeg,.png,.webp";
+
+    private ElementReference DropzoneElement;
+    private IAsyncDisposable? _dropSubscription;
+
+    private string AcceptHint =>
+        _capabilities is { } caps
+            ? $"Pick one or more images — each is cut out on its own, up to {caps.MaxBatchFiles} at a time. Max dimension: {caps.MaxDimension}px, max size: {caps.MaxUploadMb} MB."
+            : "Pick one or more images. Supported formats load once the server is reachable.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _capabilities = await Client.GetCapabilitiesAsync();
+        if (_capabilities is not null)
+        {
+            _engines = _capabilities.AvailableEngines;
+            _accept = string.Join(',', _capabilities.SupportedExtensions);
+            if (_engines.Count > 0)
+            {
+                _engine = _engines[0];
+            }
+        }
+
+        var batches = await Client.ListBatchesAsync();
+        if (batches is not null)
+        {
+            _recentBatches.AddRange(batches);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dropSubscription = await DropZone.AttachAsync(DropzoneElement, OnFilesDroppedAsync);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_dropSubscription is not null)
+        {
+            await _dropSubscription.DisposeAsync();
+        }
+
+        _originalBytesByName.Clear();
+        await Task.CompletedTask;
+    }
+
+    private IReadOnlyList<CutoutFileState> ReadyFiles => [.. _files.Where(f => f.IsReady)];
+    private int AttentionCount => _files.Count(f => f.NeedsAttention);
+    private string Summary => $"{_files.Count} file(s) · {ReadyFiles.Count} ready";
+    private string BatchZipUrl => Client.BatchZipUrl(ReadyFiles.Select(f => f.Upload!.JobId).ToArray(), string.IsNullOrWhiteSpace(_template) ? null : _template);
+
+    private string BackgroundHex
+    {
+        get => _backgroundHex ?? "#FFFFFF";
+        set => _backgroundHex = value;
+    }
+
+    private byte[]? OriginalBytesAccessorFor(CutoutFileState file) =>
+        _originalBytesByName.GetValueOrDefault(file.FileName);
+
+    private byte[] GetOriginalBytes(CutoutFileState file) =>
+        _originalBytesByName.GetValueOrDefault(file.FileName, []);
+
+    private string CompareDataUrl(byte[] bytes, CutoutFileState file) =>
+        $"data:{file.Upload?.ContentType ?? "image/jpeg"};base64,{Convert.ToBase64String(bytes)}";
+
+    private string StatusOf(CutoutFileState file) =>
+        file.IsReady ? "is-ready" : file.Error is not null ? "is-error" : file.Processing ? "is-busy" : "is-pending";
+
+    private string CompareStatusText(CutoutFileState file) =>
+        file.IsReady ? "Ready" : file.Processing ? "Processing" : file.Error is not null ? "Failed" : "Queued";
+
+    private async Task OnFilesDroppedAsync(IReadOnlyList<DroppedFile> files)
+    {
+        var entries = new List<(string, long, string, Func<Stream>)>();
+        foreach (var file in files)
+        {
+            var f = file;
+            var bytes = await DropZoneService.ReadAllBytesAsync(f);
+            entries.Add((f.Name, bytes.LongLength, f.ContentType, () => new MemoryStream(bytes)));
+        }
+
+        await EnqueueFilesAsync(entries);
+    }
+
+    private async Task OnFilesSelectedAsync(InputFileChangeEventArgs args)
+    {
+        _error = null;
+        var availableSlots = CutoutLimits.MaxBatchFiles - _files.Count;
+        if (availableSlots <= 0)
+        {
+            _error = $"Batch limit reached (maximum {CutoutLimits.MaxBatchFiles} files). Click Clear all to start over.";
+            return;
+        }
+
+        IReadOnlyList<IBrowserFile> picked;
+        try
+        {
+            picked = args.GetMultipleFiles(availableSlots);
+        }
+        catch (InvalidOperationException)
+        {
+            _error = $"Cannot add that many files. Only {availableSlots} slot(s) remaining.";
+            return;
+        }
+
+        if (picked.Count == 0)
+        {
+            return;
+        }
+
+        var entries = new List<(string, long, string, Func<Stream>)>();
+        foreach (var f in picked)
+        {
+            entries.Add((f.Name, f.Size, f.ContentType, () => f.OpenReadStream(maxAllowedSize: CutoutLimits.MaxUploadBytes)));
+        }
+
+        await EnqueueFilesAsync(entries);
+    }
+
+    private async Task EnqueueFilesAsync(IReadOnlyList<(string Name, long Size, string ContentType, Func<Stream> OpenStream)> entries)
+    {
+        foreach (var entry in entries)
+        {
+            var buffer = new byte[entry.Size];
+            await using var stream = entry.OpenStream();
+            var read = await stream.ReadAsync(buffer);
+            if (read != buffer.Length)
+            {
+                buffer = buffer[..read];
+            }
+            _originalBytesByName[entry.Name] = buffer;
+            _files.Add(new CutoutFileState
+            {
+                FileName = entry.Name,
+                SizeBytes = entry.Size,
+            });
+        }
+
+        await UploadAllAsync();
+    }
+
+    private async Task UploadAllAsync()
+    {
+        _busy = true;
+        try
+        {
+            for (var i = 0; i < _files.Count; i++)
+            {
+                var file = _files[i];
+                if (file.Upload is not null)
+                {
+                    continue;
+                }
+
+                _status = $"Uploading {file.FileName} ({i + 1}/{_files.Count})…";
+                StateHasChanged();
+
+                try
+                {
+                    var bytes = _originalBytesByName[file.FileName];
+                    using var ms = new MemoryStream(bytes);
+                    var uploaded = await Client.UploadAsync(ms, file.FileName, GuessContentType(file.FileName));
+                    file.Upload = uploaded;
+                    file.Error = null;
+                }
+                catch (Exception ex)
+                {
+                    file.Error = ex.Message;
+                }
+            }
+
+            await ReanalyzeAllAsync();
+        }
+        finally
+        {
+            _busy = false;
+            _status = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReanalyzeAllAsync()
+    {
+        foreach (var file in _files)
+        {
+            await ReanalyzeOneAsync(file);
+        }
+
+        await PersistBatchAsync();
+    }
+
+    private async Task ReanalyzeOneAsync(CutoutFileState file)
+    {
+        if (file.Upload is null)
+        {
+            return;
+        }
+
+        file.Processing = true;
+        file.Error = null;
+        _busy = true;
+        _status = $"Cutting out {file.FileName}…";
+        StateHasChanged();
+
+        try
+        {
+            if (_engine == CutoutEngine.BrowserOnnx && await BrowserOnnx.IsAvailableAsync())
+            {
+                var bytes = _originalBytesByName.GetValueOrDefault(file.FileName, []);
+                var masked = await BrowserOnnx.RemoveAsync(bytes, file.Upload.Width, file.Upload.Height);
+                file.Result = new CutoutResult(
+                    JobId: file.Upload.JobId,
+                    Engine: CutoutEngine.BrowserOnnx,
+                    Width: file.Upload.Width,
+                    Height: file.Upload.Height,
+                    Bytes: masked.Length,
+                    Warning: null,
+                    TrimmedWidth: file.Upload.Width,
+                    TrimmedHeight: file.Upload.Height,
+                    TrimOffsetX: 0,
+                    TrimOffsetY: 0);
+                file.Version++;
+            }
+            else
+            {
+                var options = file.Settings with
+                {
+                    Engine = _engine,
+                    Background = ParseBackground(_backgroundHex),
+                };
+                var result = await Client.AnalyzeAsync(file.Upload.JobId, options);
+                file.Result = result;
+                file.Version++;
+            }
+        }
+        catch (Exception ex)
+        {
+            file.Error = ex.Message;
+        }
+        finally
+        {
+            file.Processing = false;
+            _busy = _files.Any(f => f.Processing);
+            _status = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PersistBatchAsync()
+    {
+        var jobs = _files
+            .Where(f => f.Upload is not null)
+            .Select(f => new JobRef(
+                JobId: f.Upload!.JobId,
+                OriginalFileName: f.FileName,
+                ContentType: f.Upload.ContentType,
+                Bytes: f.Upload.Bytes,
+                Width: f.Upload.Width,
+                Height: f.Upload.Height,
+                DurationSeconds: 0,
+                SampleRate: 0,
+                Channels: 0,
+                Clips: []))
+            .ToArray();
+
+        if (jobs.Length == 0)
+        {
+            return;
+        }
+
+        var entry = new BatchEntry(
+            BatchId: Guid.NewGuid().ToString("N"),
+            Feature: "cutout",
+            CreatedUtc: DateTimeOffset.UtcNow,
+            Jobs: jobs);
+
+        try
+        {
+            await Client.SaveBatchAsync(entry);
+            _recentBatches.Insert(0, entry);
+            if (_recentBatches.Count > 50) _recentBatches.RemoveAt(_recentBatches.Count - 1);
+        }
+        catch
+        {
+            // Best-effort; Azurite may be unreachable.
+        }
+    }
+
+    private async Task ReopenBatch(string batchId)
+    {
+        _error = null;
+        var entry = (await Client.ListBatchesAsync())?.FirstOrDefault(b => b.BatchId == batchId);
+        if (entry is null)
+        {
+            _error = "That batch is no longer in Azurite.";
+            return;
+        }
+
+        // We can only re-open the metadata; the original RGBA bytes are gone after a server
+        // restart, so the user has to re-upload the source files. We surface that as an error.
+        _error = "Re-opening a batch is a stub — re-upload the source files to re-cut them.";
+    }
+
+    private async Task ForgetBatch(string batchId)
+    {
+        try
+        {
+            await Client.DeleteBatchAsync(batchId);
+            _recentBatches.RemoveAll(b => b.BatchId == batchId);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private void CompareViewToggle() => _showCompare = !_showCompare;
+
+    private void ClearBackground() => _backgroundHex = null;
+
+    private void ClearAsync()
+    {
+        _files.Clear();
+        _originalBytesByName.Clear();
+        _error = null;
+    }
+
+    private static string GuessContentType(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            _ => "application/octet-stream",
+        };
+    }
+
+    private static BackgroundColor? ParseBackground(string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex)) return null;
+        if (hex.Length != 7 || !hex.StartsWith('#')) return null;
+        return new BackgroundColor(
+            byte.Parse(hex.AsSpan(1, 2), System.Globalization.NumberStyles.HexNumber),
+            byte.Parse(hex.AsSpan(3, 2), System.Globalization.NumberStyles.HexNumber),
+            byte.Parse(hex.AsSpan(5, 2), System.Globalization.NumberStyles.HexNumber));
+    }
+
+    private static string EngineName(CutoutEngine engine) => engine switch
+    {
+        CutoutEngine.OnnxU2Net => "On-device (u2netp)",
+        CutoutEngine.BrowserOnnx => "Browser (WASM)",
+        _ => engine.ToString(),
+    };
+}

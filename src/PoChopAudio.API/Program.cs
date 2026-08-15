@@ -1,6 +1,10 @@
 using Microsoft.AspNetCore.Http.Features;
+using PoChopAudio.API.Features.Archive;
 using PoChopAudio.API.Features.Chop;
+using PoChopAudio.API.Features.Cutout;
+using PoChopAudio.API.Features.Cutout.Engines;
 using PoChopAudio.API.Features.Diagnostics;
+using PoChopAudio.API.Storage;
 using PoChopAudio.Shared;
 using Scalar.AspNetCore;
 
@@ -10,14 +14,23 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<ChopJobStore>();
 builder.Services.AddHostedService<ChopJobCleanup>();
 
+builder.Services.AddSingleton<CutoutJobStore>();
+builder.Services.AddHostedService<CutoutJobCleanup>();
+builder.Services.AddSingleton<IBackgroundRemover, OnnxU2NetRemover>();
+builder.Services.AddSingleton<EnginePicker>();
+
+builder.Services.AddSingleton<AzuriteBlobStore>();
+builder.Services.AddSingleton<JobArchive>();
+builder.Services.AddSingleton<ProgressChannel>();
+
 builder.Services.Configure<FormOptions>(options =>
 {
-    options.MultipartBodyLengthLimit = ChopLimits.MaxUploadBytes;
+    options.MultipartBodyLengthLimit = Math.Max(ChopLimits.MaxUploadBytes, CutoutLimits.MaxUploadBytes);
 });
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Limits.MaxRequestBodySize = ChopLimits.MaxUploadBytes;
+    options.Limits.MaxRequestBodySize = Math.Max(ChopLimits.MaxUploadBytes, CutoutLimits.MaxUploadBytes);
 });
 
 if (builder.Environment.IsDevelopment())
@@ -43,6 +56,8 @@ app.UseStaticFiles();
 
 app.MapDiagnosticsEndpoints();
 app.MapChopEndpoints();
+app.MapCutoutEndpoints();
+app.MapArchiveEndpoints();
 app.MapFallbackToFile("index.html");
 
 app.Run();

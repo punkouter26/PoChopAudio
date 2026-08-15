@@ -16,6 +16,12 @@ public sealed class ChopJob
     public AudioEnvelope? Envelope { get; set; }
 
     public IReadOnlyList<ChopSegment> Segments { get; set; } = [];
+
+    /// <summary>Offset in seconds from the start of the original recording to the trimmed start.</summary>
+    public double TrimStart { get; set; }
+
+    /// <summary>Offset in seconds from the trimmed end to the end of the original recording.</summary>
+    public double TrimEnd { get; set; }
 }
 
 /// <summary>

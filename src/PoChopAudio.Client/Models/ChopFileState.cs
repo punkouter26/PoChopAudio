@@ -24,6 +24,7 @@ public sealed class ChopSettings
     public double PadMs { get; set; }
     public bool AutoThreshold { get; set; }
     public double ThresholdDb { get; set; }
+    public double TrimSilenceMs { get; set; }
 
     public static ChopSettings Defaults()
     {
@@ -36,6 +37,7 @@ public sealed class ChopSettings
             PadMs = defaults.PadMs,
             AutoThreshold = true,
             ThresholdDb = ChopLimits.DefaultThresholdDb,
+            TrimSilenceMs = defaults.TrimSilenceMs,
         };
     }
 
@@ -48,6 +50,7 @@ public sealed class ChopSettings
         MinGapMs = MinGapMs,
         PadMs = PadMs,
         ThresholdDb = AutoThreshold ? null : ThresholdDb,
+        TrimSilenceMs = TrimSilenceMs,
     };
 }
 

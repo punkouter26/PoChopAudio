@@ -124,12 +124,79 @@ public static class ChopEndpoints
             return TypedResults.ValidationProblem(errors);
         }
 
-        var result = SegmentDetector.Detect(envelope, options) with { JobId = job.Id.ToString() };
+        // Silence trim (when enabled) shrinks the working envelope. Detection runs on the
+        // trimmed slice, then the segment timestamps are shifted so the user sees times
+        // relative to the original recording, not the trimmed one.
+        var (start, end) = SilenceTrimmer.Trim(envelope, options);
+        var frameMs = SegmentDetector.FrameMs;
+        var trimStart = start * frameMs / 1000d;
+        var trimEnd = end * frameMs / 1000d;
+
+        var working = SliceEnvelope(envelope, start, end);
+        var result = SegmentDetector.Detect(working, options) with { JobId = job.Id.ToString() };
+
+        if (trimStart > 0 || trimEnd < envelope.DurationSeconds)
+        {
+            var shifted = result.Segments
+                .Select(s => s with { StartSeconds = s.StartSeconds + trimStart, EndSeconds = s.EndSeconds + trimStart })
+                .ToArray();
+            result = result with
+            {
+                Segments = shifted,
+                DurationSeconds = envelope.DurationSeconds - trimStart - (envelope.DurationSeconds - trimEnd),
+            };
+        }
+
         job.Segments = result.Segments;
+        job.TrimStart = trimStart;
+        job.TrimEnd = envelope.DurationSeconds - trimEnd;
 
         ChopLog.Analyzed(ChopLog.CreateLogger(loggerFactory), job.Id.ToString(), result.Segments.Count, result.ThresholdDb);
 
         return TypedResults.Ok(result);
+    }
+
+    private static AudioEnvelope SliceEnvelope(AudioEnvelope envelope, int startFrame, int endFrame)
+    {
+        if (startFrame <= 0 && endFrame >= envelope.FrameDb.Count - 1)
+        {
+            return envelope;
+        }
+
+        var sliceLength = endFrame - startFrame + 1;
+        var slicedDb = new double[sliceLength];
+        var slicedWave = new float[envelope.Waveform.Count];
+        var bucketRatio = (double)envelope.Waveform.Count / envelope.FrameDb.Count;
+
+        for (var i = 0; i < sliceLength; i++)
+        {
+            slicedDb[i] = envelope.FrameDb[startFrame + i];
+        }
+
+        for (var i = 0; i < envelope.Waveform.Count; i++)
+        {
+            var sourceFrame = (int)(i / bucketRatio);
+            if (sourceFrame >= startFrame && sourceFrame <= endFrame)
+            {
+                var targetIndex = (int)((sourceFrame - startFrame) * bucketRatio);
+                if (targetIndex >= 0 && targetIndex < slicedWave.Length)
+                {
+                    slicedWave[targetIndex] = envelope.Waveform[i];
+                }
+            }
+        }
+
+        var duration = sliceLength * SegmentDetector.FrameMs / 1000d;
+        return new AudioEnvelope
+        {
+            FrameDb = slicedDb,
+            Waveform = slicedWave,
+            DurationSeconds = duration,
+            SampleRate = envelope.SampleRate,
+            Channels = envelope.Channels,
+            PeakDb = envelope.PeakDb,
+            NoiseFloorDb = envelope.NoiseFloorDb,
+        };
     }
 
     private static Results<FileContentHttpResult, NotFound<string>> GetClip(string jobId, int index, ChopJobStore store)

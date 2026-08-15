@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using PoChopAudio.Client;
+using PoChopAudio.Client.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
@@ -13,5 +14,11 @@ builder.Services.AddScoped(sp =>
     handler.InnerHandler = new HttpClientHandler();
     return new HttpClient(handler) { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) };
 });
+builder.Services.AddScoped<CutoutClient>();
+builder.Services.AddScoped<ProgressStream>();
+builder.Services.AddSingleton<BrowserOnnxRuntime>();
+builder.Services.AddSingleton<BrowserOnnxRemover>();
+builder.Services.AddScoped<PreviewService>();
+builder.Services.AddScoped<DropZoneService>();
 
 await builder.Build().RunAsync();

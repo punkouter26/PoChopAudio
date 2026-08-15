@@ -63,6 +63,13 @@ public sealed record ChopOptions
 
     /// <summary>Loudness gate in dBFS. Null asks the detector to find one.</summary>
     public double? ThresholdDb { get; init; }
+
+    /// <summary>
+    /// Drops any leading or trailing silence longer than this (in ms). 0 disables trimming.
+    /// 200 ms is a sensible default: it eats a typical pre-roll breath but keeps an intentional
+    /// short pause between takes.
+    /// </summary>
+    public double TrimSilenceMs { get; init; } = 0;
 }
 
 public sealed record ChopSegment(

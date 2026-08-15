@@ -10,12 +10,27 @@ Governance lives in [NET_RULES.md](NET_RULES.md); this file records what was act
 ```
 src/PoChopAudio.API/          Minimal API + BFF host; serves the Blazor client
   Features/Chop/              The whole splitting feature (endpoints, DTO wiring, DSP, storage)
+  Features/Cutout/            Image background-removal feature
+    ImageDecoder              JPEG/PNG/WebP decode, EXIF auto-rotate, MP.jpg trailer strip
+    EdgeProcessor             Mask threshold, morphology, feather, alpha multiplier
+    Engines/OnnxU2NetRemover  u2netp ONNX model, in-process
+    CutoutJobStore            Same temp-dir / 2 h TTL pattern as ChopJobStore
+    CutoutEndpoints           /api/cutout/{upload, capabilities, analyze, image, images.zip}
   Features/Diagnostics/       /health and /diag
-src/PoChopAudio.Client/       Blazor WASM UI (single page)
-  Components/                 ChopFileCard (one recording), ChopKnobs (the five settings)
-  Models/                     ChopFileState / ChopSettings — per-file UI state, client only
+src/PoChopAudio.Client/       Blazor WASM UI
+  Components/ChopFileCard.razor   One recording
+  Components/ChopKnobs.razor      The five chop settings
+  Components/CutoutFileCard.razor One image
+  Components/CutoutKnobs.razor    Alpha threshold / feather / morphology / multiplier
+  Pages/Home.razor           The chop page
+  Pages/Cutout.razor         The cutout page (per-image engine picker, checkerboard preview)
+  Services/CutoutClient.cs   Typed HttpClient for /api/cutout
+  Services/BrowserOnnxRemover Client-side ONNX runtime (when no server engine is available)
+  wwwroot/js/cutout.js       onnxruntime-web + u2netp in the browser via JS interop
 src/PoChopAudio.Shared/       Contracts shared by both: JobId, ChopLimits, ChopOptions, results
-tests/PoChopAudio.Unit/       SegmentDetector and ClipExporter naming, no I/O
+                              plus CutoutLimits, CutoutEngine, IBackgroundRemover, CutoutOptions
+tests/PoChopAudio.Unit/       SegmentDetector, ClipExporter, ImageDecoder, EdgeProcessor, CutoutExporter
+tests/PoChopAudio.Integration/  Full HTTP pipeline with WebApplicationFactory<Program>
 output/                       Clips produced from the Matt_*.m4a recordings
 ```
 
@@ -85,14 +100,56 @@ Then:
 `AudioDecoder.IsSupportedExtension` and `/diag` both report the list for the running platform, so the
 UI never offers a format the server cannot read.
 
+## Cutout
+
+`/api/cutout` takes an image and returns a PNG with the background removed. Two engines, both
+free, picked per batch via the API picker:
+
+| Engine | Where it runs | Quality | Cost |
+| --- | --- | --- | --- |
+| `OnnxU2Net` | Server (Microsoft.ML.OnnxRuntime + u2netp.onnx) | Good for portraits | Free |
+| `BrowserOnnx` | Browser (onnxruntime-web + u2netp.onnx via JS interop) | Same | Free, no upload of raw pixels |
+
+`IBackgroundRemover` lives in `PoChopAudio.Shared`; the API registers one implementation per
+engine, and the `EnginePicker` exposes only the available ones through `/api/cutout/capabilities`.
+The UI then offers exactly that picker.
+
+The pipeline is decode-once, process-once, encode-once:
+
+1. **Upload** — `POST /api/cutout/upload`. The image is decoded once into raw RGBA bytes
+   (`ImageSharp`, EXIF auto-rotate, Pixel Motion Photo `.MP.jpg` trailer stripped). The original
+   file is discarded; the working copy lives in `%TEMP%/PoChopAudioCutout` and is wiped on
+   shutdown.
+2. **Analyze** — `POST /api/cutout/{jobId}/analyze`. The picker selects an engine; the engine
+   returns the alpha mask as RGBA bytes. `EdgeProcessor` applies the four user knobs (threshold,
+   morphology, feather, multiplier) and the background fill, then `ImageDecoder.EncodePng` writes
+   the final PNG. The processed RGBA replaces the originals in the job so subsequent downloads
+   are fast.
+3. **Download** — `GET /api/cutout/{jobId}/image` for one image, `GET /api/cutout/images.zip?jobs=…`
+   for a batch. ZIP filenames are flat (`<stem>_cutout.png`, with `(N)` suffix for collisions)
+   so the archive reads like the output folder.
+
+Per-file knobs mirror the chopper: alpha threshold 0-255, feather 0-5 px, morphology -3 to +3 px,
+optional background fill. Defaults are tuned for portraits; an image that needs no tweak usually
+ships with the defaults.
+
+The model file (`u2netp.onnx`, ~4.4 MB) lives in `src/PoChopAudio.API/Content/Models/`. The
+`<None Include="Content/Models/u2netp.onnx" Condition="Exists(...)">` clause means a fresh clone
+builds without it — the API then reports `OnnxU2Net` as unavailable and the UI hides it.
+`SCRIPTS/download-models.ps1` fetches the model from the public U-2-Net release into the right
+folder. It is licensed Apache-2.0; the license file is downloaded alongside.
+
+The browser engine downloads `onnxruntime-web` from jsDelivr at first use, caches the model in
+IndexedDB, and posts the masked PNG back as `image/png`. The model file is served from the API
+host at `_content/cutout-models/u2netp.onnx`.
+
 ## Deliberately absent
 
 - **No auth.** Nothing is protected, so there is no BFF cookie flow, no Entra ID, no
   `FakeAuthHandler`. Add `Features/Auth` and a `FallbackPolicy` if this is ever hosted for more than
   one person — the NET_RULES rules for that path still apply.
 - **No database.** A job is a temp directory; restarting is the reset button.
-- **No integration / E2E projects yet.** The unit tests cover the detector and the clip naming,
-  which is where the interesting behaviour is. Verification against real audio was done end-to-end
-  by hand, including a two-file batch driven through a real browser (see `output/`).
+- **No paid AI services.** Both engines are free (on-device ONNX models). remove.bg was considered
+  and dropped per the no-paid-services decision.
 - **No per-file progress bar.** Upload is sequential and the status line names the file it is on,
   which is enough at this scale; a real progress bar needs a streaming upload the API does not offer.

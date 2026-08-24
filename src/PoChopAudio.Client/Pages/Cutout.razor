@@ -196,14 +196,34 @@
     protected override async Task OnInitializedAsync()
     {
         _capabilities = await Client.GetCapabilitiesAsync();
+
+        // The server can only report the engines it hosts. BrowserOnnx runs in this tab, so nothing
+        // on the server side can know whether it is usable — the page has to ask and add it itself,
+        // which is why it never once appeared in the picker.
+        var engines = new List<CutoutEngine>(_capabilities?.AvailableEngines ?? []);
+
+        if (await BrowserOnnx.IsAvailableAsync() && !engines.Contains(CutoutEngine.BrowserOnnx))
+        {
+            engines.Add(CutoutEngine.BrowserOnnx);
+        }
+
+        _engines = engines;
+
         if (_capabilities is not null)
         {
-            _engines = _capabilities.AvailableEngines;
             _accept = string.Join(',', _capabilities.SupportedExtensions);
-            if (_engines.Count > 0)
-            {
-                _engine = _engines[0];
-            }
+        }
+
+        if (_engines.Count > 0)
+        {
+            _engine = _engines[0];
+        }
+        else
+        {
+            _error = Client.LastCapabilitiesError is { } reason
+                ? $"No cutout engine is available. The server could not be reached: {reason}"
+                : "No cutout engine is available. Run SCRIPTS/download-models.ps1 to install u2netp.onnx, "
+                  + "or check that this browser can reach the model.";
         }
 
         var batches = await Client.ListBatchesAsync();

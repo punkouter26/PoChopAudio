@@ -7,14 +7,28 @@ namespace PoChopAudio.Client.Services;
 /// <summary>Typed HTTP client for the cutout endpoints.</summary>
 public sealed class CutoutClient(HttpClient http)
 {
+    /// <summary>
+    /// Why the last capabilities probe came back null. Without this the page could only render an
+    /// empty engine picker and no reason for it, which is indistinguishable from "no engines".
+    /// </summary>
+    public string? LastCapabilitiesError { get; private set; }
+
     public async Task<CutoutCapabilities?> GetCapabilitiesAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            return await http.GetFromJsonAsync<CutoutCapabilities>("api/cutout/capabilities", cancellationToken).ConfigureAwait(false);
+            var capabilities = await http
+                .GetFromJsonAsync<CutoutCapabilities>("api/cutout/capabilities", cancellationToken)
+                .ConfigureAwait(false);
+
+            LastCapabilitiesError = capabilities is null ? "The server returned an empty response." : null;
+            return capabilities;
         }
-        catch (HttpRequestException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // Deliberately broad: a JsonException here used to escape OnInitializedAsync entirely
+            // and take the rest of the page's setup with it.
+            LastCapabilitiesError = $"{exception.GetType().Name}: {exception.Message}";
             return null;
         }
     }

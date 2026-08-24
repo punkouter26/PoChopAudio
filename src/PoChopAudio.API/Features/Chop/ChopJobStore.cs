@@ -36,8 +36,15 @@ public sealed class ChopJobStore : IDisposable
 
     public ChopJobStore()
     {
-        Root = Path.Combine(Path.GetTempPath(), "PoChopAudio");
-        TryDeleteDirectory(Root);
+        // Each store owns a private subdirectory rather than the shared parent. The old code wiped
+        // %TEMP%/PoChopAudio outright on construction and on dispose, so a second instance on the
+        // same machine deleted the first one's audio out from under it — two API processes on
+        // different ports, or several WebApplicationFactory test hosts running in parallel.
+        var parent = Path.Combine(Path.GetTempPath(), "PoChopAudio");
+        Directory.CreateDirectory(parent);
+        SweepStaleSiblings(parent, Lifetime);
+
+        Root = Path.Combine(parent, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
     }
 
@@ -87,6 +94,32 @@ public sealed class ChopJobStore : IDisposable
     }
 
     public void Dispose() => TryDeleteDirectory(Root);
+
+    /// <summary>
+    /// Removes leftovers from instances that died without disposing. Age is the only safe signal
+    /// that a sibling is abandoned rather than in use by a live process, and anything older than
+    /// the job lifetime would have expired regardless — so nothing still wanted is ever deleted.
+    /// </summary>
+    private static void SweepStaleSiblings(string parent, TimeSpan lifetime)
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow - lifetime;
+            foreach (var directory in Directory.EnumerateDirectories(parent))
+            {
+                if (Directory.GetLastWriteTimeUtc(directory) < cutoff)
+                {
+                    TryDeleteDirectory(directory);
+                }
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
     private static void TryDeleteDirectory(string path)
     {

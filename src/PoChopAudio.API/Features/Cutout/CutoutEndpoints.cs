@@ -22,6 +22,12 @@ public static class CutoutEndpoints
         group.MapGet("/capabilities", GetCapabilities)
             .WithSummary("Image formats and engines available on this server");
 
+        // HEAD as well as GET: the browser engine probes this before offering itself, and a
+        // GET-only route lets the probe fall through to the SPA fallback, which answers 200 with
+        // index.html and makes a working engine look unavailable.
+        group.MapMethods("/model", [HttpMethods.Get, HttpMethods.Head], GetModel)
+            .WithSummary("Download u2netp.onnx so the browser engine can run it on-device");
+
         group.MapPost("/{jobId}/analyze", Analyze)
             .WithSummary("Strip the background from an uploaded image");
 
@@ -38,6 +44,33 @@ public static class CutoutEndpoints
             .WithSummary("Discard an uploaded image");
 
         return app;
+    }
+
+    private const string OnnxContentType = "application/octet-stream";
+
+    /// <summary>
+    /// Serves the ONNX model to the browser engine.
+    ///
+    /// The model ships as content next to the API, not under wwwroot, so nothing was serving it and
+    /// the browser engine could never fetch one. It cannot simply be moved into wwwroot either: the
+    /// csproj includes it only <c>Condition="Exists(...)"</c>, and a fresh clone has to build and run
+    /// without it. Hence an endpoint that 404s when the file is absent, which is exactly what the
+    /// browser side needs in order to report itself unavailable rather than feeding an HTML error
+    /// page to the ONNX parser.
+    /// </summary>
+    private static Results<PhysicalFileHttpResult, NotFound<string>> GetModel(IWebHostEnvironment env)
+    {
+        var path = Path.Combine(env.ContentRootPath, "Content", "Models", "u2netp.onnx");
+
+        if (!File.Exists(path))
+        {
+            return TypedResults.NotFound(
+                "u2netp.onnx is not present on this server. Run SCRIPTS/download-models.ps1 to fetch it.");
+        }
+
+        // The model never changes for a given deployment, so let the browser and its IndexedDB copy
+        // keep it rather than re-downloading 4.4 MB on every cold load.
+        return TypedResults.PhysicalFile(path, OnnxContentType, enableRangeProcessing: true);
     }
 
     private static async Task<Results<Ok<CutoutUploadResult>, ProblemHttpResult>> UploadAsync(

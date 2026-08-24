@@ -1,0 +1,107 @@
+<Page
+    x:Class="PoChopAudio.WinUI.Views.HealthPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:common="using:PoChopAudio.WinUI.Common"
+    xmlns:models="using:PoChopAudio.WinUI.Models">
+
+    <Page.Resources>
+        <common:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <common:NullToVisibilityConverter x:Key="NullToVis" />
+    </Page.Resources>
+
+    <ScrollViewer Padding="24,16,24,32">
+        <StackPanel Spacing="16" MaxWidth="1100" HorizontalAlignment="Stretch">
+
+            <!-- Title -->
+            <StackPanel Spacing="4">
+                <TextBlock Text="System Health &amp; Settings" Style="{ThemeResource TitleTextBlockStyle}" />
+                <TextBlock Text="Manage connection to the PoChopAudio backend API and inspect diagnostics."
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <!-- API Connection Card -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="20">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Backend API Connection" Style="{ThemeResource SubtitleTextBlockStyle}" />
+
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBox Grid.Column="0" Header="API Base URL" Text="{x:Bind ViewModel.ServerUrl, Mode=TwoWay}"
+                                 PlaceholderText="http://localhost:5177" />
+                        <Button Grid.Column="1" Content="Test Connection" Style="{ThemeResource AccentButtonStyle}"
+                                VerticalAlignment="Bottom"
+                                Command="{x:Bind ViewModel.RefreshHealthCommand}" />
+                    </Grid>
+
+                    <ProgressBar IsIndeterminate="True" Visibility="{x:Bind ViewModel.IsChecking, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+
+                    <!-- Status Banner -->
+                    <Border Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="6" Padding="12">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <FontIcon Glyph="&#xE73E;" FontSize="20" Foreground="#22C55E"
+                                      Visibility="{x:Bind ViewModel.IsHealthy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                            <FontIcon Glyph="&#xE711;" FontSize="20" Foreground="#EF4444"
+                                      Visibility="{x:Bind ViewModel.IsHealthy, Mode=OneWay, Converter={StaticResource NullToVis}, ConverterParameter=invert}" />
+                            <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Capabilities Card (When Connected) -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="20"
+                    Visibility="{x:Bind ViewModel.IsHealthy, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="Server Capabilities" Style="{ThemeResource SubtitleTextBlockStyle}" />
+
+                    <Grid ColumnSpacing="24">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Audio Decoder Codecs" FontWeight="SemiBold" />
+                            <TextBlock Text="{x:Bind ViewModel.ChopCaps.Description, Mode=OneWay}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="Max Batch: 32 recordings · Max Upload: 250 MB" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Image Cutout Engines" FontWeight="SemiBold" />
+                            <TextBlock Text="ONNX Runtime (u2netp.onnx)"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="Max Batch: 32 images · Max Upload: 25 MB" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Raw Diagnostics JSON Card -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="20"
+                    Visibility="{x:Bind ViewModel.DiagnosticsJson, Mode=OneWay, Converter={StaticResource NullToVis}}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Diagnostics Output (/diag)" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBox Text="{x:Bind ViewModel.DiagnosticsJson, Mode=OneWay}"
+                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                             FontFamily="Consolas" Height="180" />
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+

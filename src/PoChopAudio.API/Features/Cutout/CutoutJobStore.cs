@@ -33,8 +33,13 @@ public sealed class CutoutJobStore : IDisposable
 
     public CutoutJobStore()
     {
-        Root = Path.Combine(Path.GetTempPath(), "PoChopAudioCutout");
-        TryDeleteDirectory(Root);
+        // Private subdirectory per instance — see the note in ChopJobStore. Wiping the shared
+        // parent meant a second instance deleted the first one's images while it was serving them.
+        var parent = Path.Combine(Path.GetTempPath(), "PoChopAudioCutout");
+        Directory.CreateDirectory(parent);
+        SweepStaleSiblings(parent, Lifetime);
+
+        Root = Path.Combine(parent, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
     }
 
@@ -93,6 +98,31 @@ public sealed class CutoutJobStore : IDisposable
     }
 
     public void Dispose() => TryDeleteDirectory(Root);
+
+    /// <summary>
+    /// Clears leftovers from instances that died without disposing. Only directories older than the
+    /// job lifetime go, since those would have expired anyway — a live peer is never touched.
+    /// </summary>
+    private static void SweepStaleSiblings(string parent, TimeSpan lifetime)
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow - lifetime;
+            foreach (var directory in Directory.EnumerateDirectories(parent))
+            {
+                if (Directory.GetLastWriteTimeUtc(directory) < cutoff)
+                {
+                    TryDeleteDirectory(directory);
+                }
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
     private static void TryDeleteDirectory(string path)
     {

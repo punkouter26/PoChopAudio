@@ -1,0 +1,32 @@
+<UserControl
+    x:Class="PoChopAudio.WinUI.Controls.WaveformView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:PoChopAudio.WinUI.Controls"
+    SizeChanged="OnSizeChanged">
+
+    <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1" CornerRadius="6" Height="140" Padding="0" ClipToBounds="True">
+        <Grid x:Name="RootGrid">
+            <!-- Background Canvas for take segment highlight rectangles -->
+            <Canvas x:Name="SegmentsCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
+            <!-- Waveform Canvas for drawing audio sample bars -->
+            <Canvas x:Name="WaveformCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
+            <!-- Playhead Canvas -->
+            <Canvas x:Name="PlayheadCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsHitTestVisible="False">
+                <Line x:Name="PlayheadLine" X1="0" Y1="0" X2="0" Y2="140"
+                      Stroke="{ThemeResource AccentFillColorDefaultBrush}" StrokeThickness="2" Visibility="Collapsed" />
+            </Canvas>
+
+            <!-- Time markers footer -->
+            <Grid VerticalAlignment="Bottom" Margin="8,0,8,4" IsHitTestVisible="False">
+                <TextBlock x:Name="StartTimeText" Text="0:00.0" FontSize="10" HorizontalAlignment="Left" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <TextBlock x:Name="EndTimeText" Text="0:00.0" FontSize="10" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>
+

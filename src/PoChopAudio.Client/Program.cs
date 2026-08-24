@@ -19,5 +19,7 @@ builder.Services.AddScoped<ProgressStream>();
 builder.Services.AddSingleton<BrowserOnnxRuntime>();
 builder.Services.AddScoped<PreviewService>();
 builder.Services.AddScoped<DropZoneService>();
+builder.Services.AddScoped<AudioRecorder>();
+builder.Services.AddScoped<CameraCapture>();
 
 await builder.Build().RunAsync();

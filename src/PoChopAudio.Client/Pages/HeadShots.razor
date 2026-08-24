@@ -1,0 +1,508 @@
+@page "/headshots"
+@using PoChopAudio.Client.Models
+@using PoChopAudio.Client.Services
+@inject CameraCapture Camera
+@inject BrowserOnnxRuntime BrowserOnnx
+@implements IAsyncDisposable
+
+<PageTitle>Head shots — PoChopAudio</PageTitle>
+
+<header class="page-header">
+    <div>
+        <h1 class="page-title">Take head shots and cut them out</h1>
+        <p class="page-subtitle">
+            Shoot a set of portraits, each one cut out and cropped to your head automatically.
+            Nothing is uploaded — the camera, the model, and the ZIP all run in this tab.
+        </p>
+    </div>
+</header>
+
+@if (_supported is false)
+{
+    <section class="card">
+        <p class="warn" role="alert">
+            The camera needs permission over a secure connection. This page is on a plain HTTP origin,
+            or the browser exposes no camera, so head shots are unavailable here. The
+            <a href="cutout">Cutout page</a> still accepts photos from disk.
+        </p>
+    </section>
+}
+else
+{
+    <section class="card">
+        <div class="stage">
+            <video @ref="_video" class="preview @(_running ? "live" : "")" playsinline muted></video>
+
+            @if (_running)
+            {
+                <div class="guide" aria-hidden="true"></div>
+            }
+
+            @if (!_running)
+            {
+                <div class="stage-idle">
+                    <p>Camera off</p>
+                </div>
+            }
+
+            @if (_countdown > 0)
+            {
+                <div class="countdown" role="status" aria-live="assertive">@_countdown</div>
+            }
+
+            @if (_flash)
+            {
+                <div class="flash" aria-hidden="true"></div>
+            }
+        </div>
+
+        <div class="controls">
+            <label class="control">
+                <span class="control-label">Name</span>
+                <input type="text" placeholder="Head" maxlength="60" disabled="@_capturing"
+                       value="@_name" @onchange="OnNameChanged" />
+                <span class="hint">Saves as @PreviewName</span>
+            </label>
+
+            <label class="control">
+                <span class="control-label">Mode</span>
+                <select @bind="_burst" disabled="@_capturing">
+                    <option value="true">Burst — shoot a set automatically</option>
+                    <option value="false">Manual — one shot per press</option>
+                </select>
+            </label>
+
+            @if (_burst)
+            {
+                <label class="control">
+                    <span class="control-label">Shots</span>
+                    <input type="number" min="1" max="@MaxShots" step="1" disabled="@_capturing"
+                           value="@_shotCount" @onchange="OnShotCountChanged" onwheel="this.blur()" />
+                </label>
+
+                <label class="control">
+                    <span class="control-label">Seconds between</span>
+                    <input type="number" min="1" max="15" step="1" disabled="@_capturing"
+                           value="@_gapSeconds" @onchange="OnGapChanged" onwheel="this.blur()" />
+                </label>
+            }
+
+            <label class="control">
+                <span class="control-label">Crop padding (px)</span>
+                <input type="number" min="0" max="200" step="4" disabled="@_capturing"
+                       value="@_padding" @onchange="OnPaddingChanged" onwheel="this.blur()" />
+                <span class="hint">Breathing room around your head after the background goes.</span>
+            </label>
+        </div>
+
+        <div class="actions">
+            @if (!_running)
+            {
+                <button type="button" class="primary" @onclick="StartCameraAsync">Turn camera on</button>
+            }
+            else if (_capturing)
+            {
+                <button type="button" @onclick="CancelBurst">Stop @(_burst ? "burst" : string.Empty)</button>
+            }
+            else
+            {
+                <button type="button" class="primary" @onclick="ShootAsync">
+                    @(_burst ? $"Shoot {_shotCount}" : "Take one")
+                </button>
+                <button type="button" @onclick="StopCameraAsync">Turn camera off</button>
+            }
+
+            @if (ReadyCount > 0)
+            {
+                <button type="button" class="primary" @onclick="DownloadZipAsync" disabled="@_capturing">
+                    Download @ReadyCount cutout@(ReadyCount == 1 ? "" : "s") as ZIP
+                </button>
+            }
+
+            @if (_shots.Count > 0)
+            {
+                <button type="button" class="subtle" @onclick="ClearAsync" disabled="@_capturing">Clear all</button>
+            }
+        </div>
+
+        @if (_status is { Length: > 0 })
+        {
+            <p class="status" role="status">@_status</p>
+        }
+
+        @if (_error is { } error)
+        {
+            <p class="error" role="alert">@error</p>
+        }
+
+        @if (_engineMissing)
+        {
+            <p class="warn" role="alert">
+                The in-browser cutout engine could not load, so shots are kept as plain photos.
+                It downloads onnxruntime-web on first use, which needs the network once.
+            </p>
+        }
+    </section>
+}
+
+@if (_shots.Count > 0)
+{
+    <section class="card">
+        <header class="card-head">
+            <h2>@_shots.Count shot@(_shots.Count == 1 ? "" : "s")</h2>
+            <span class="meta">@ReadyCount ready@(AttentionCount > 0 ? $" · {AttentionCount} need attention" : string.Empty)</span>
+        </header>
+
+        <ol class="shots">
+            @foreach (var shot in _shots)
+            {
+                <li class="shot @(shot.NeedsAttention ? "attention" : string.Empty)" @key="shot.Id">
+                    <span class="shot-index">@shot.Index</span>
+
+                    <div class="shot-thumbs">
+                        <img class="thumb" src="@shot.OriginalUrl" alt="Shot @shot.Index as taken" />
+                        @if (shot.CutoutUrl is { } cutoutUrl)
+                        {
+                            <img class="thumb checker" src="@cutoutUrl" alt="Shot @shot.Index with the background removed" />
+                        }
+                    </div>
+
+                    <div class="shot-detail">
+                        <strong>@shot.FileNameFor(EffectiveName)</strong>
+                        <span class="meta">@ShotStatusText(shot)</span>
+                        @if (shot.Error is { } shotError)
+                        {
+                            <span class="error">@shotError</span>
+                        }
+                    </div>
+
+                    <div class="shot-actions">
+                        @if (shot.IsReady)
+                        {
+                            <button type="button" @onclick="() => SaveOneAsync(shot)">Save</button>
+                        }
+                        <button type="button" @onclick="() => RecutAsync(shot)" disabled="@(_capturing || shot.Status is HeadShotStatus.Cutting)">
+                            Re-cut
+                        </button>
+                        <button type="button" class="subtle" @onclick="() => DeleteAsync(shot)" disabled="@_capturing">
+                            Delete
+                        </button>
+                    </div>
+                </li>
+            }
+        </ol>
+    </section>
+}
+
+@code {
+    private const int MaxShots = 24;
+
+    private readonly List<HeadShot> _shots = [];
+
+    private ElementReference _video;
+
+    private bool? _supported;
+    private bool _running;
+    private bool _capturing;
+    private bool _burst = true;
+    private bool _engineMissing;
+    private bool _flash;
+
+    private string _name = string.Empty;
+    private int _shotCount = 5;
+    private int _gapSeconds = 3;
+    private int _padding = 16;
+    private int _countdown;
+
+    private string _status = string.Empty;
+    private string? _error;
+
+    private CancellationTokenSource? _burstCts;
+
+    private int ReadyCount => _shots.Count(s => s.IsReady);
+
+    private int AttentionCount => _shots.Count(s => s.NeedsAttention);
+
+    private string EffectiveName => string.IsNullOrWhiteSpace(_name) ? "Head" : _name.Trim();
+
+    private string PreviewName => $"{EffectiveName}_1.png, {EffectiveName}_2.png, …";
+
+    protected override async Task OnInitializedAsync() => _supported = await Camera.IsSupportedAsync();
+
+    private void OnNameChanged(ChangeEventArgs args) => _name = args.Value?.ToString() ?? string.Empty;
+
+    private void OnShotCountChanged(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var value))
+        {
+            _shotCount = Math.Clamp(value, 1, MaxShots);
+        }
+    }
+
+    private void OnGapChanged(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var value))
+        {
+            _gapSeconds = Math.Clamp(value, 1, 15);
+        }
+    }
+
+    private void OnPaddingChanged(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), out var value))
+        {
+            _padding = Math.Clamp(value, 0, 200);
+        }
+    }
+
+    private static string ShotStatusText(HeadShot shot) => shot.Status switch
+    {
+        HeadShotStatus.Captured => "Waiting to cut out…",
+        HeadShotStatus.Cutting => "Removing the background…",
+        HeadShotStatus.Failed => "Failed",
+        _ when shot.EmptyMask => "Nothing found in frame — kept as shot",
+        _ => $"{shot.Width} × {shot.Height}",
+    };
+
+    private async Task StartCameraAsync()
+    {
+        _error = null;
+
+        try
+        {
+            var info = await Camera.StartAsync(_video);
+            _running = true;
+            _status = $"{info.Label} · {info.Width} × {info.Height}";
+        }
+        catch (JSException exception)
+        {
+            _error = exception.Message.Contains("denied", StringComparison.OrdinalIgnoreCase)
+                ? "Camera access was denied. Allow it in the browser's site settings and try again."
+                : $"Could not start the camera: {exception.Message}";
+        }
+    }
+
+    private async Task StopCameraAsync()
+    {
+        await Camera.StopAsync();
+        _running = false;
+        _status = string.Empty;
+    }
+
+    private void CancelBurst() => _burstCts?.Cancel();
+
+    private async Task ShootAsync()
+    {
+        _error = null;
+        _capturing = true;
+        _burstCts = new CancellationTokenSource();
+        var token = _burstCts.Token;
+
+        try
+        {
+            var wanted = _burst ? _shotCount : 1;
+
+            for (var shot = 0; shot < wanted; shot++)
+            {
+                // The countdown is the whole point of burst mode: it is the gap in which you turn
+                // your head for the next angle.
+                for (_countdown = _gapSeconds; _countdown > 0 && _burst; _countdown--)
+                {
+                    _status = $"Shot {shot + 1} of {wanted} in {_countdown}…";
+                    StateHasChanged();
+                    await Task.Delay(1000, token);
+                }
+
+                _countdown = 0;
+                await CaptureOneAsync(wanted, shot + 1);
+
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _status = "Burst stopped.";
+        }
+        finally
+        {
+            _countdown = 0;
+            _capturing = false;
+            _burstCts?.Dispose();
+            _burstCts = null;
+
+            if (_status.Contains(" in ", StringComparison.Ordinal))
+            {
+                _status = string.Empty;
+            }
+        }
+    }
+
+    private async Task CaptureOneAsync(int total, int ordinal)
+    {
+        _status = $"Capturing {ordinal} of {total}…";
+        StateHasChanged();
+
+        CapturedShot captured;
+        try
+        {
+            captured = await Camera.CaptureAsync();
+        }
+        catch (JSException exception)
+        {
+            _error = $"Could not take the photo: {exception.Message}";
+            return;
+        }
+
+        await FlashAsync();
+
+        var shot = new HeadShot
+        {
+            Id = captured.Id,
+            OriginalUrl = captured.OriginalUrl,
+            Index = _shots.Count + 1,
+            Width = captured.Width,
+            Height = captured.Height,
+        };
+
+        _shots.Add(shot);
+        StateHasChanged();
+
+        await CutoutAsync(shot);
+    }
+
+    /// <summary>A brief white overlay, so it is obvious a frame was actually taken.</summary>
+    private async Task FlashAsync()
+    {
+        _flash = true;
+        StateHasChanged();
+        await Task.Delay(90);
+        _flash = false;
+        StateHasChanged();
+    }
+
+    private async Task CutoutAsync(HeadShot shot)
+    {
+        if (!await BrowserOnnx.IsAvailableAsync())
+        {
+            _engineMissing = true;
+            shot.Status = HeadShotStatus.Ready;
+            shot.CutoutUrl = null;
+            StateHasChanged();
+            return;
+        }
+
+        shot.Status = HeadShotStatus.Cutting;
+        shot.Error = null;
+        _status = $"Cutting out shot {shot.Index}…";
+        StateHasChanged();
+
+        try
+        {
+            var result = await Camera.CutoutAsync(shot.Id, _padding);
+            shot.CutoutUrl = result.CutoutUrl;
+            shot.Width = result.Width;
+            shot.Height = result.Height;
+            shot.EmptyMask = result.EmptyMask;
+            shot.Status = HeadShotStatus.Ready;
+        }
+        catch (JSException exception)
+        {
+            shot.Status = HeadShotStatus.Failed;
+            shot.Error = exception.Message;
+        }
+        finally
+        {
+            if (!_capturing)
+            {
+                _status = string.Empty;
+            }
+
+            StateHasChanged();
+        }
+    }
+
+    private Task RecutAsync(HeadShot shot) => CutoutAsync(shot);
+
+    private async Task SaveOneAsync(HeadShot shot)
+    {
+        if (shot.CutoutUrl is { } url)
+        {
+            await Camera.SaveAsync(url, shot.FileNameFor(EffectiveName));
+        }
+    }
+
+    private async Task DownloadZipAsync()
+    {
+        _error = null;
+
+        var ready = _shots.Where(s => s.IsReady).ToArray();
+        if (ready.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var url = await Camera.ZipAsync(
+                [.. ready.Select(s => s.Id)],
+                [.. ready.Select(s => s.FileNameFor(EffectiveName))]);
+
+            await Camera.SaveAsync(url, $"{EffectiveName}_cutouts.zip", revokeAfter: true);
+        }
+        catch (JSException exception)
+        {
+            _error = $"Could not build the ZIP: {exception.Message}";
+        }
+    }
+
+    private async Task DeleteAsync(HeadShot shot)
+    {
+        await Camera.RemoveAsync(shot.Id);
+        _shots.Remove(shot);
+        Renumber();
+    }
+
+    private async Task ClearAsync()
+    {
+        await Camera.ClearAsync();
+        _shots.Clear();
+        _error = null;
+        _engineMissing = false;
+    }
+
+    /// <summary>
+    /// Keeps the numbered suffixes contiguous after a delete. Without this, throwing away shot 2
+    /// of five leaves you with Head_1, Head_3, Head_4, Head_5 and a permanent question about
+    /// whether a file went missing.
+    /// </summary>
+    private void Renumber()
+    {
+        for (var i = 0; i < _shots.Count; i++)
+        {
+            _shots[i].Index = i + 1;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _burstCts?.Cancel();
+        _burstCts?.Dispose();
+
+        // Release the camera and the object URLs, but leave the service itself alone — it belongs
+        // to the DI container, not to this page.
+        try
+        {
+            await Camera.StopAsync();
+            await Camera.ClearAsync();
+        }
+        catch (JSException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

@@ -100,6 +100,10 @@
     [Parameter]
     public bool Busy { get; set; }
 
+    /// <summary>Batch-wide export knobs, folded into every download link on this card.</summary>
+    [Parameter]
+    public ExportSettings Export { get; set; } = new();
+
     /// <summary>Re-run detection for this file alone.</summary>
     [Parameter]
     public EventCallback<ChopFileState> Resplit { get; set; }
@@ -117,7 +121,7 @@
 
     private static int _idSequence;
 
-    private string ZipUrl => $"api/chop/{File.Upload!.JobId}/clips.zip?v={File.Version}";
+    private string ZipUrl => WithExport($"api/chop/{File.Upload!.JobId}/clips.zip?v={File.Version}");
 
     private string WaveformLabel => $"Waveform of {File.FileName} with {File.Segments.Count} detected take(s) highlighted.";
 
@@ -162,7 +166,15 @@
     private Task FollowBatchAsync() => FollowBatch.InvokeAsync(File);
 
     private string ClipUrl(ChopSegment segment) =>
-        $"api/chop/{File.Upload!.JobId}/clips/{segment.Index}?v={segment.StartSeconds:F3}_{segment.EndSeconds:F3}";
+        WithExport($"api/chop/{File.Upload!.JobId}/clips/{segment.Index}?v={segment.StartSeconds:F3}_{segment.EndSeconds:F3}");
+
+    /// <summary>
+    /// Folds the export knobs onto a download URL. Because they land in the query string, changing
+    /// one also changes the URL, so the browser re-fetches instead of replaying a cached clip that
+    /// was rendered with the previous settings.
+    /// </summary>
+    private string WithExport(string url) =>
+        Export.ToQuery() is { Length: > 0 } query ? $"{url}&{query}" : url;
 
     private double X(double seconds) =>
         File.Upload is { DurationSeconds: > 0 } upload

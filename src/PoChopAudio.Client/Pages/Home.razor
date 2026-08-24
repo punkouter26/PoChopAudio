@@ -25,6 +25,8 @@
     {
         <p class="error" role="alert">@_error</p>
     }
+
+    <RecorderPanel Busy="@_busy" SuggestName="UniqueName" Recorded="OnRecordedAsync" />
 </section>
 
 @if (_files.Count > 0)
@@ -38,6 +40,13 @@
         <p class="hint">These apply to every file that has not been tuned on its own.</p>
 
         <ChopKnobs Settings="_shared" Disabled="@_busy" Changed="OnBatchKnobChangedAsync" />
+
+        <h3>Export</h3>
+        <p class="hint">
+            Applied to every download below. These do not change the split, so nothing is re-analysed.
+        </p>
+
+        <ExportKnobs Settings="_export" Disabled="@_busy" Changed="OnExportChanged" />
 
         <div class="actions">
             <button type="button" class="primary" @onclick="ResplitAllAsync" disabled="@(_busy || ResplitTargetCount == 0)" title="@ResplitAllTitle">
@@ -67,6 +76,7 @@
         <ChopFileCard @key="file"
                       File="file"
                       Busy="@_busy"
+                      Export="_export"
                       Resplit="ResplitOneAsync"
                       FollowBatch="FollowBatchAsync" />
     }
@@ -76,6 +86,9 @@
     private readonly List<ChopFileState> _files = [];
 
     private ChopSettings _shared = ChopSettings.Defaults();
+
+    /// <summary>Batch-wide export knobs. Changing these rewrites the download URLs and nothing else.</summary>
+    private ExportSettings _export = new();
 
     private bool _busy;
     private string _status = string.Empty;
@@ -148,10 +161,18 @@
         get
         {
             var v = ReadyFiles.Count == 0 ? 0 : ReadyFiles.Sum(f => f.Version);
-            return "api/chop/clips.zip?v=" + v + "&"
+            var url = "api/chop/clips.zip?v=" + v + "&"
                 + string.Join('&', ReadyFiles.Select(f => $"jobs={f.Upload!.JobId}"));
+
+            return _export.ToQuery() is { Length: > 0 } query ? $"{url}&{query}" : url;
         }
     }
+
+    /// <summary>
+    /// Export knobs only rewrite the download links, so this is a re-render and nothing more —
+    /// no debounce, no server round trip, no re-split.
+    /// </summary>
+    private void OnExportChanged() => StateHasChanged();
 
     private async Task OnFilesSelectedAsync(InputFileChangeEventArgs args)
     {
@@ -230,8 +251,6 @@
             return;
         }
 
-        file.Status = ChopFileStatus.Uploading;
-
         try
         {
             using var buffer = new MemoryStream();
@@ -241,13 +260,31 @@
             }
 
             buffer.Position = 0;
+            await PostUploadAsync(buffer, source.Name, file);
+        }
+        catch (Exception exception)
+        {
+            Fail(file, $"Upload failed: {exception.Message}");
+        }
+    }
 
-            using var content = new MultipartFormDataContent
+    /// <summary>
+    /// The one path to the server. A recording arrives here as WAV bytes the browser encoded, so
+    /// from this point on it is indistinguishable from a file the user picked — same decode, same
+    /// detection, same clip naming.
+    /// </summary>
+    private async Task PostUploadAsync(Stream content, string fileName, ChopFileState file)
+    {
+        file.Status = ChopFileStatus.Uploading;
+
+        try
+        {
+            using var form = new MultipartFormDataContent
             {
-                { new StreamContent(buffer), "file", source.Name },
+                { new StreamContent(content), "file", fileName },
             };
 
-            using var response = await Http.PostAsync("api/chop/upload", content);
+            using var response = await Http.PostAsync("api/chop/upload", form);
             if (!response.IsSuccessStatusCode)
             {
                 Fail(file, await DescribeFailureAsync(response));
@@ -259,6 +296,76 @@
         catch (Exception exception)
         {
             Fail(file, $"Upload failed: {exception.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Gives a new recording a name nothing else in the batch is using. The server's
+    /// <c>UniqueStems</c> would keep the ZIP safe regardless, but a name collision resolved
+    /// silently at download time is a poor way to learn two takes share a name.
+    /// </summary>
+    private string UniqueName(string wanted)
+    {
+        var taken = _files
+            .Select(f => Path.GetFileNameWithoutExtension(f.FileName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (!taken.Contains(wanted))
+        {
+            return wanted;
+        }
+
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = $"{wanted}({suffix})";
+            if (!taken.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>Takes a finished recording into the batch and splits it like any other file.</summary>
+    private async Task OnRecordedAsync(RecordedTake take)
+    {
+        _error = null;
+
+        if (_files.Count >= ChopLimits.MaxBatchFiles)
+        {
+            _error = $"Batch limit reached (maximum {ChopLimits.MaxBatchFiles} files). Click Clear all to start a new batch.";
+            return;
+        }
+
+        var state = new ChopFileState
+        {
+            FileName = $"{take.Name}.wav",
+            SizeBytes = take.Wav.Length,
+            Settings = _shared.Clone(),
+            Expanded = true,
+        };
+
+        _files.Add(state);
+        _busy = true;
+
+        try
+        {
+            _status = $"Decoding {state.FileName}…";
+            StateHasChanged();
+
+            using var buffer = new MemoryStream(take.Wav, writable: false);
+            await PostUploadAsync(buffer, state.FileName, state);
+
+            if (state.Status is not ChopFileStatus.Failed)
+            {
+                _status = $"Finding takes in {state.FileName}…";
+                StateHasChanged();
+                await AnalyzeAsync(state);
+            }
+        }
+        finally
+        {
+            _busy = false;
+            _status = string.Empty;
         }
     }
 

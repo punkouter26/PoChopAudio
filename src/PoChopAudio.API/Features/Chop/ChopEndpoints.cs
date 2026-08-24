@@ -199,8 +199,17 @@ public static class ChopEndpoints
         };
     }
 
-    private static Results<FileContentHttpResult, NotFound<string>> GetClip(string jobId, int index, ChopJobStore store)
+    private static Results<FileContentHttpResult, NotFound<string>, ValidationProblem> GetClip(
+        string jobId,
+        int index,
+        ChopJobStore store,
+        [AsParameters] ChopExportQuery export)
     {
+        if (export.Validate() is { Count: > 0 } errors)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
         if (store.Find(jobId) is not { } job)
         {
             return TypedResults.NotFound(NotFoundMessage);
@@ -212,13 +221,21 @@ public static class ChopEndpoints
         }
 
         return TypedResults.File(
-            ClipExporter.RenderClip(job.CanonicalPath, segment),
+            ClipExporter.RenderClip(job.CanonicalPath, segment, export.ToOptions()),
             WavContentType,
             ClipExporter.ClipFileName(job, segment));
     }
 
-    private static Results<FileContentHttpResult, NotFound<string>> GetZip(string jobId, ChopJobStore store)
+    private static Results<FileContentHttpResult, NotFound<string>, ValidationProblem> GetZip(
+        string jobId,
+        ChopJobStore store,
+        [AsParameters] ChopExportQuery export)
     {
+        if (export.Validate() is { Count: > 0 } errors)
+        {
+            return TypedResults.ValidationProblem(errors);
+        }
+
         if (store.Find(jobId) is not { } job)
         {
             return TypedResults.NotFound(NotFoundMessage);
@@ -231,15 +248,21 @@ public static class ChopEndpoints
 
         var stem = Path.GetFileNameWithoutExtension(job.OriginalFileName);
         return TypedResults.File(
-            ClipExporter.RenderZip(job),
+            ClipExporter.RenderZip(job, export.ToOptions()),
             ZipContentType,
             $"{(string.IsNullOrWhiteSpace(stem) ? "clips" : stem)}_clips.zip");
     }
 
     private static Results<FileContentHttpResult, NotFound<string>, ValidationProblem> GetBatchZip(
         string[] jobs,
-        ChopJobStore store)
+        ChopJobStore store,
+        [AsParameters] ChopExportQuery export)
     {
+        if (export.Validate() is { Count: > 0 } exportErrors)
+        {
+            return TypedResults.ValidationProblem(exportErrors);
+        }
+
         if (jobs.Length > ChopLimits.MaxBatchFiles)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
@@ -260,7 +283,7 @@ public static class ChopEndpoints
             return TypedResults.NotFound("There is nothing to download. Upload the files again and re-split.");
         }
 
-        return TypedResults.File(ClipExporter.RenderZip(ready), ZipContentType, "clips.zip");
+        return TypedResults.File(ClipExporter.RenderZip(ready, export.ToOptions()), ZipContentType, "clips.zip");
     }
 
     private static NoContent Delete(string jobId, ChopJobStore store)

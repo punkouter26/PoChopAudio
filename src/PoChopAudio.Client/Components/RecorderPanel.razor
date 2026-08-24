@@ -1,0 +1,289 @@
+@* Record takes straight into the batch. The result is an ordinary WAV, split like any upload. *@
+@using PoChopAudio.Client.Services
+@inject AudioRecorder Recorder
+@implements IAsyncDisposable
+
+<div class="recorder @StateClass">
+    @if (_supported is false)
+    {
+        <p class="hint">
+            Recording needs microphone access over a secure connection. This page is on a plain HTTP
+            origin, or the browser has no AudioWorklet support, so use the file picker instead.
+        </p>
+    }
+    else
+    {
+        <div class="recorder-row">
+            <label class="recorder-name">
+                <span>Recording name</span>
+                <input type="text" placeholder="Nick_Happy" maxlength="80"
+                       disabled="@(Busy || IsActive)"
+                       value="@_name"
+                       @onchange="OnNameChanged" />
+            </label>
+
+            @if (_phase is RecorderPhase.Idle)
+            {
+                <button type="button" class="primary record" disabled="@Busy" @onclick="BeginAsync">
+                    <span class="dot" aria-hidden="true"></span> Record
+                </button>
+            }
+            else if (_phase is RecorderPhase.CountingIn)
+            {
+                <button type="button" class="record counting" @onclick="CancelCountIn">
+                    Starting in @_countIn… (cancel)
+                </button>
+            }
+            else
+            {
+                <button type="button" class="primary record recording" @onclick="FinishAsync">
+                    <span class="dot pulsing" aria-hidden="true"></span> Stop @Elapsed
+                </button>
+            }
+        </div>
+
+        <p class="hint">
+            Record every take in one pass, leaving a pause between them — it is split exactly like an
+            uploaded file, into @FileNamePreview. Up to @MaxMinutes minutes.
+        </p>
+
+        @if (_phase is RecorderPhase.Recording)
+        {
+            <div class="monitor">
+                <div class="meter" role="img" aria-label="@MeterLabel">
+                    <div class="meter-fill @(_clipped ? "clipping" : "")" style="width: @(MeterPercent)%"></div>
+                    <span class="meter-text">@PeakText</span>
+                </div>
+
+                <svg class="live-wave" viewBox="0 0 @(WaveWindow) 60" preserveAspectRatio="none"
+                     role="img" aria-label="Live input waveform">
+                    <rect x="0" y="0" width="@WaveWindow" height="60" class="live-wave-bg" />
+                    @for (var i = 0; i < _history.Count; i++)
+                    {
+                        var half = Math.Max(0.5, _history[i] * 29);
+                        <line class="live-wave-bar"
+                              x1="@i" y1="@((30 - half).ToString("F1"))"
+                              x2="@i" y2="@((30 + half).ToString("F1"))" />
+                    }
+                </svg>
+            </div>
+
+            @if (_clipped)
+            {
+                <p class="warn" role="alert">
+                    Input is clipping. Turn the mic gain down — clipped samples cannot be recovered,
+                    and every clip cut from this take will carry the distortion.
+                </p>
+            }
+        }
+
+        @if (_notice is { } notice)
+        {
+            <p class="warn" role="alert">@notice</p>
+        }
+
+        @if (_error is { } error)
+        {
+            <p class="error" role="alert">@error</p>
+        }
+    }
+</div>
+
+@code {
+    private enum RecorderPhase { Idle, CountingIn, Recording }
+
+    /// <summary>Points of live waveform kept on screen — 50 ms each, so about 15 seconds.</summary>
+    private const int WaveWindow = 300;
+
+    private const int CountInFrom = 3;
+
+    /// <summary>True while the batch is busy elsewhere; recording must not start mid-upload.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>Hands the finished WAV to the page, which uploads and splits it like any file.</summary>
+    [Parameter, EditorRequired]
+    public EventCallback<RecordedTake> Recorded { get; set; }
+
+    /// <summary>Suggested name, so a second recording does not silently collide with the first.</summary>
+    [Parameter]
+    public Func<string, string>? SuggestName { get; set; }
+
+    private readonly List<double> _history = [];
+
+    private RecorderPhase _phase = RecorderPhase.Idle;
+    private bool? _supported;
+    private string _name = string.Empty;
+    private double _peakDb = -100;
+    private double _elapsed;
+    private bool _clipped;
+    private int _countIn;
+    private string? _error;
+    private string? _notice;
+    private CancellationTokenSource? _countInCts;
+
+    private bool IsActive => _phase is not RecorderPhase.Idle;
+
+    private string StateClass => _phase switch
+    {
+        RecorderPhase.Recording => "is-recording",
+        RecorderPhase.CountingIn => "is-counting",
+        _ => string.Empty,
+    };
+
+    private static int MaxMinutes => (int)(AudioRecorder.MaxRecordingBytes / (48_000 * 2 * 60));
+
+    private string Elapsed => TimeSpan.FromSeconds(_elapsed).ToString(_elapsed >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
+
+    private string EffectiveName => string.IsNullOrWhiteSpace(_name) ? DefaultName() : _name.Trim();
+
+    private string FileNamePreview => $"{EffectiveName}_1.wav, {EffectiveName}_2.wav, …";
+
+    // A meter that bottoms out at -60 dBFS: below that the bar is not telling anyone anything.
+    private double MeterPercent => Math.Clamp((_peakDb + 60) / 60 * 100, 0, 100);
+
+    private string PeakText => double.IsNegativeInfinity(_peakDb) || _peakDb <= -99
+        ? "silent"
+        : $"{_peakDb:F1} dBFS";
+
+    private string MeterLabel => $"Input level {PeakText}{(_clipped ? ", clipping" : string.Empty)}.";
+
+    protected override async Task OnInitializedAsync() => _supported = await Recorder.IsSupportedAsync();
+
+    private void OnNameChanged(ChangeEventArgs args) => _name = args.Value?.ToString() ?? string.Empty;
+
+    private static string DefaultName() => $"Recording_{DateTime.Now:yyyy-MM-dd_HHmm}";
+
+    private async Task BeginAsync()
+    {
+        _error = null;
+        _notice = null;
+        _countInCts = new CancellationTokenSource();
+        _phase = RecorderPhase.CountingIn;
+
+        try
+        {
+            for (_countIn = CountInFrom; _countIn > 0; _countIn--)
+            {
+                StateHasChanged();
+                await Task.Delay(1000, _countInCts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _phase = RecorderPhase.Idle;
+            return;
+        }
+        finally
+        {
+            _countInCts.Dispose();
+            _countInCts = null;
+        }
+
+        try
+        {
+            _history.Clear();
+            _peakDb = -100;
+            _elapsed = 0;
+            _clipped = false;
+
+            await Recorder.StartAsync(OnLevel, OnLimitReached);
+            _phase = RecorderPhase.Recording;
+        }
+        catch (JSException exception)
+        {
+            _phase = RecorderPhase.Idle;
+            _error = exception.Message.Contains("denied", StringComparison.OrdinalIgnoreCase)
+                ? "Microphone access was denied. Allow it in the browser's site settings and try again."
+                : $"Could not start recording: {exception.Message}";
+        }
+    }
+
+    private void CancelCountIn() => _countInCts?.Cancel();
+
+    private void OnLevel(RecordingLevel level)
+    {
+        _peakDb = level.PeakDb;
+        _elapsed = level.ElapsedSeconds;
+        _clipped = level.Clipped;
+
+        // Amplitude rather than dB for the scrolling view: a dB-scaled bar spends most of its
+        // height on room tone and makes every take look identical.
+        _history.Add(Math.Clamp(Math.Pow(10, level.PeakDb / 20), 0, 1));
+        if (_history.Count > WaveWindow)
+        {
+            _history.RemoveRange(0, _history.Count - WaveWindow);
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLimitReached()
+    {
+        _notice = $"Stopped at the {MaxMinutes} minute limit — any longer would not fit in one upload.";
+        InvokeAsync(FinishAsync);
+    }
+
+    private async Task FinishAsync()
+    {
+        if (_phase is not RecorderPhase.Recording)
+        {
+            return;
+        }
+
+        _phase = RecorderPhase.Idle;
+        StateHasChanged();
+
+        RecordingResult? result;
+        try
+        {
+            result = await Recorder.StopAsync();
+        }
+        catch (JSException exception)
+        {
+            _error = $"Could not finish the recording: {exception.Message}";
+            return;
+        }
+
+        if (result is null || result.Wav.Length == 0)
+        {
+            _error = "Nothing was captured. Check that the right input device is selected.";
+            return;
+        }
+
+        var name = SuggestName?.Invoke(EffectiveName) ?? EffectiveName;
+
+        if (result.Clipped)
+        {
+            _notice = $"{name} clipped while recording. The clips are still usable, but the distortion is baked in.";
+        }
+
+        // Clear the name so the next recording does not silently reuse it and rely on the
+        // collision suffix to tell two different performances apart.
+        _name = string.Empty;
+
+        await Recorded.InvokeAsync(new RecordedTake(name, result.Wav, result.DurationSeconds));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _countInCts?.Cancel();
+        _countInCts?.Dispose();
+
+        // Release the microphone if the user navigates away mid-take, but leave the recorder
+        // itself alone — it belongs to the DI container, not to this component.
+        if (Recorder.IsRecording)
+        {
+            try
+            {
+                await Recorder.StopAsync();
+            }
+            catch (JSException)
+            {
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+}

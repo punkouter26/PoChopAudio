@@ -7,6 +7,7 @@
 
     <Page.Resources>
         <common:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <common:BoolToVisibilityConverter x:Key="InvertedBoolToVis" Invert="True" />
         <common:NullToVisibilityConverter x:Key="NullToVis" />
     </Page.Resources>
 
@@ -48,7 +49,7 @@
                             <FontIcon Glyph="&#xE73E;" FontSize="20" Foreground="#22C55E"
                                       Visibility="{x:Bind ViewModel.IsHealthy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                             <FontIcon Glyph="&#xE711;" FontSize="20" Foreground="#EF4444"
-                                      Visibility="{x:Bind ViewModel.IsHealthy, Mode=OneWay, Converter={StaticResource NullToVis}, ConverterParameter=invert}" />
+                                      Visibility="{x:Bind ViewModel.IsHealthy, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}" />
                             <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" />
                         </StackPanel>
                     </Border>

@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Media;
 
 namespace PoChopAudio.WinUI.Common;
 
@@ -45,6 +44,20 @@ public sealed class NullToVisibilityConverter : IValueConverter
         if (value is string s) hasValue = !string.IsNullOrWhiteSpace(s);
         if (Invert) hasValue = !hasValue;
         return hasValue ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
+}
+
+public sealed class IntToVisibilityConverter : IValueConverter
+{
+    public bool Invert { get; set; }
+
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var hasCount = value is int count && count > 0;
+        if (Invert) hasCount = !hasCount;
+        return hasCount ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();

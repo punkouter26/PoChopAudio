@@ -8,6 +8,7 @@ namespace PoChopAudio.WinUI.Views;
 public sealed partial class HeadShotsPage : Page
 {
     public HeadShotsViewModel ViewModel { get; }
+    private DispatcherTimer? _previewTimer;
 
     public HeadShotsPage()
     {
@@ -16,20 +17,41 @@ public sealed partial class HeadShotsPage : Page
         Unloaded += OnUnloaded;
     }
 
-    public int CaptureModeIndex
-    {
-        get => ViewModel.IsBurstMode ? 0 : 1;
-        set => ViewModel.IsBurstMode = (value == 0);
-    }
-
     private async void OnStartCameraClicked(object sender, RoutedEventArgs e)
     {
         await ViewModel.StartCameraAsync();
-        if (ViewModel.IsCameraRunning && ViewModel.Camera.Capture is not null)
+        if (ViewModel.IsCameraRunning)
         {
-            CameraPreviewElement.Source = ViewModel.Camera.Capture;
-            await ViewModel.Camera.Capture.StartPreviewAsync();
+            _previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _previewTimer.Tick += async (s, args) =>
+            {
+                if (ViewModel.IsCameraRunning && !ViewModel.IsCapturing)
+                {
+                    var frame = await ViewModel.Camera.CapturePreviewFrameAsync();
+                    if (frame is not null)
+                    {
+                        CameraPreviewImage.Source = frame;
+                    }
+                }
+            };
+            _previewTimer.Start();
         }
+    }
+
+    private async void OnShootClicked(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.ShootAsync();
+    }
+
+    private void OnStopCameraClicked(object sender, RoutedEventArgs e)
+    {
+        _previewTimer?.Stop();
+        ViewModel.StopCamera();
+    }
+
+    private void OnClearAllClicked(object sender, RoutedEventArgs e)
+    {
+        ViewModel.ClearAll();
     }
 
     private async void OnSaveAllToFolderClicked(object sender, RoutedEventArgs e)
@@ -55,6 +77,8 @@ public sealed partial class HeadShotsPage : Page
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _previewTimer?.Stop();
+        _previewTimer = null;
         ViewModel.StopCamera();
     }
 }

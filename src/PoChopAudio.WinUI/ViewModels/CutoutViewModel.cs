@@ -64,7 +64,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     {
         ErrorMessage = null;
         var picker = new FileOpenPicker();
-        WindowHelper.InitializeWithWindow(picker, window);
+        WindowHelper.InitWithWindow(picker, window);
         picker.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
 
         var exts = Capabilities?.SupportedExtensions ?? [".jpg", ".jpeg", ".png", ".webp"];
@@ -267,7 +267,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
 
         try
         {
-            var jobIds = ready.Select(f => f.JobId).ToList();
+            var jobIds = ready.Where(f => !string.IsNullOrEmpty(f.JobId)).Select(f => f.JobId!).ToList();
             await using var stream = await _apiClient.GetBatchZipStreamAsync(jobIds, FilenameTemplate, _cts.Token);
             await ExportService.SaveStreamToFileAsync(stream, savePath, _cts.Token);
             StatusMessage = $"Saved ZIP to {Path.GetFileName(savePath)}";
@@ -285,7 +285,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public async Task SaveAllToFolderAsync(Window window)
     {
-        var ready = Files.Where(f => f.IsReady).ToList();
+        var ready = Files.Where(f => f.IsReady && !string.IsNullOrEmpty(f.JobId)).ToList();
         if (ready.Count == 0) return;
 
         var folderPath = await ExportService.PickFolderAsync(window);
@@ -300,7 +300,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
                 var stem = Path.GetFileNameWithoutExtension(item.FileName);
                 StatusMessage = $"Saving {stem}_cutout.png ({i + 1} of {ready.Count})…";
 
-                var pngBytes = await _apiClient.GetCutoutImageAsync(item.JobId, _cts.Token);
+                var pngBytes = await _apiClient.GetCutoutImageAsync(item.JobId!, _cts.Token);
                 var targetFile = Path.Combine(folderPath, $"{stem}_cutout.png");
                 await ExportService.SaveBytesToFileAsync(pngBytes, targetFile, _cts.Token);
             }
@@ -319,13 +319,14 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public async Task SaveSingleCutoutAsync((CutoutFileItem Item, Window Window) args)
     {
+        if (string.IsNullOrEmpty(args.Item.JobId)) return;
         var stem = Path.GetFileNameWithoutExtension(args.Item.FileName);
         var savePath = await ExportService.PickSaveFileAsync(args.Window, $"{stem}_cutout.png", ".png", "PNG Image");
         if (string.IsNullOrEmpty(savePath)) return;
 
         try
         {
-            var bytes = await _apiClient.GetCutoutImageAsync(args.Item.JobId, _cts.Token);
+            var bytes = await _apiClient.GetCutoutImageAsync(args.Item.JobId!, _cts.Token);
             await ExportService.SaveBytesToFileAsync(bytes, savePath, _cts.Token);
         }
         catch (Exception ex)

@@ -10,16 +10,15 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        this.TrySetMicaBackdrop();
-        this.SetWindowSize(1200, 850);
-    }
+        WindowHelper.TrySetMicaBackdrop(this);
+        WindowHelper.SetWindowSize(this, 1280, 840);
+        WindowHelper.SetIcon(this, "Assets/Square44x44Logo.png");
 
-    private void OnNavViewLoaded(object sender, RoutedEventArgs e)
-    {
+        NavView.SelectedItem = NavView.MenuItems[0];
         NavigateTo("Chop");
     }
 
-    private void OnNavigationItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    private void OnNavItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (args.InvokedItemContainer is NavigationViewItem item && item.Tag is string tag)
         {
@@ -31,11 +30,8 @@ public sealed partial class MainWindow : Window
     {
         Type pageType = tag switch
         {
-            "Chop" => typeof(ChopPage),
             "Cutout" => typeof(CutoutPage),
-            "HeadShots" => typeof(HeadShotsPage),
-            "Health" => typeof(HealthPage),
-            _ => typeof(ChopPage)
+            _ => typeof(HealthPage)
         };
 
         if (ContentFrame.CurrentSourcePageType != pageType)

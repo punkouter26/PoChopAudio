@@ -8,20 +8,13 @@ using PoChopAudio.WinUI.Services;
 
 namespace PoChopAudio.WinUI.ViewModels;
 
-public partial class HeadShotsViewModel : ObservableObject, IDisposable
+public partial class HeadShotsViewModel : ObservableObject
 {
     private readonly CameraService _camera;
     private readonly LocalCutoutService _localCutout;
-    private CancellationTokenSource _cts = new();
+    private readonly CancellationTokenSource _cts = new();
 
-    public HeadShotsViewModel(CameraService camera, LocalCutoutService localCutout)
-    {
-        _camera = camera;
-        _localCutout = localCutout;
-    }
-
-    [ObservableProperty]
-    private ObservableCollection<HeadShotItem> _headShots = [];
+    public ObservableCollection<HeadShotItem> HeadShots { get; } = [];
 
     [ObservableProperty]
     private bool _isCameraRunning;
@@ -33,10 +26,16 @@ public partial class HeadShotsViewModel : ObservableObject, IDisposable
     private bool _isBurstMode = true;
 
     [ObservableProperty]
-    private int _shotCount = 5;
+    private double _shotCount = 5;
 
     [ObservableProperty]
     private int _countdown;
+
+    [ObservableProperty]
+    private string _countdownText = string.Empty;
+
+    [ObservableProperty]
+    private bool _hasCountdown;
 
     [ObservableProperty]
     private string _headShotName = "Head";
@@ -47,7 +46,21 @@ public partial class HeadShotsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _errorMessage;
 
+    public bool HasHeadShots => HeadShots.Count > 0;
     public CameraService Camera => _camera;
+
+    public HeadShotsViewModel(CameraService camera, LocalCutoutService localCutout)
+    {
+        _camera = camera;
+        _localCutout = localCutout;
+        HeadShots.CollectionChanged += (s, e) => OnPropertyChanged(nameof(HasHeadShots));
+    }
+
+    partial void OnCountdownChanged(int value)
+    {
+        HasCountdown = value > 0;
+        CountdownText = value > 0 ? value.ToString() : string.Empty;
+    }
 
     [RelayCommand]
     public async Task StartCameraAsync()
@@ -61,7 +74,7 @@ public partial class HeadShotsViewModel : ObservableObject, IDisposable
         }
         else
         {
-            ErrorMessage = "Could not initialize camera. Ensure a webcam is connected and permitted.";
+            ErrorMessage = "Could not initialize camera. Please check camera permissions.";
         }
     }
 
@@ -70,72 +83,88 @@ public partial class HeadShotsViewModel : ObservableObject, IDisposable
     {
         _camera.Dispose();
         IsCameraRunning = false;
-        StatusMessage = "Camera stopped.";
+        StatusMessage = string.Empty;
     }
 
     [RelayCommand]
     public async Task ShootAsync()
     {
-        if (IsCapturing) return;
-
-        if (!IsCameraRunning)
-        {
-            await StartCameraAsync();
-            if (!IsCameraRunning) return;
-        }
+        if (!IsCameraRunning || IsCapturing) return;
 
         IsCapturing = true;
         ErrorMessage = null;
 
         try
         {
-            int total = IsBurstMode ? ShotCount : 1;
-            var baseName = string.IsNullOrWhiteSpace(HeadShotName) ? "Head" : HeadShotName.Trim();
+            int total = IsBurstMode ? Math.Clamp((int)ShotCount, 1, 20) : 1;
 
             for (int i = 0; i < total; i++)
             {
-                if (_cts.IsCancellationRequested) break;
-
-                // Countdown for each shot
-                for (int c = 3; c > 0; c--)
+                if (IsBurstMode)
                 {
-                    Countdown = c;
-                    await Task.Delay(1000);
+                    // 3, 2, 1 Countdown
+                    for (int c = 3; c >= 1; c--)
+                    {
+                        Countdown = c;
+                        await Task.Delay(1000);
+                    }
+                    Countdown = 0;
                 }
-                Countdown = 0;
 
                 StatusMessage = $"Shooting {i + 1} of {total}…";
-                var frameBytes = await _camera.CapturePhotoAsync();
-                if (frameBytes is null || frameBytes.Length == 0) continue;
+                var photoBytes = await _camera.CapturePhotoAsync();
+                if (photoBytes is null || photoBytes.Length == 0)
+                {
+                    ErrorMessage = "Failed to capture frame from camera.";
+                    break;
+                }
 
                 var item = new HeadShotItem
                 {
-                    Name = $"{baseName}_{HeadShots.Count + 1}",
                     Index = HeadShots.Count + 1,
-                    CapturedAt = DateTimeOffset.Now,
+                    Name = $"{HeadShotName}_{HeadShots.Count + 1}",
+                    OriginalJpegBytes = photoBytes,
                     IsProcessing = true
                 };
+
+                // Create original image preview
+                using var ms = new MemoryStream(photoBytes);
+                var ras = ms.AsRandomAccessStream();
+                var bmp = new BitmapImage();
+                await bmp.SetSourceAsync(ras);
+                item.Image = bmp;
+
                 HeadShots.Add(item);
 
-                // Run local on-device background removal and head crop
+                // Run AI cutout in background
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        var (pngBytes, w, h) = await _localCutout.ProcessHeadshotAsync(frameBytes, _cts.Token);
-                        item.CutoutPngBytes = pngBytes;
-                        item.Width = w;
-                        item.Height = h;
+                        var cutoutBytes = await _localCutout.RemoveBackgroundAndCropHeadAsync(photoBytes, _cts.Token);
+                        item.CutoutPngBytes = cutoutBytes;
 
-                        using var ms = new MemoryStream(pngBytes);
-                        var ras = ms.AsRandomAccessStream();
-                        var bmp = new BitmapImage();
-                        await bmp.SetSourceAsync(ras);
-                        item.Image = bmp;
+                        // Get dimensions using ImageSharp metadata
+                        using var img = SixLabors.ImageSharp.Image.Load(cutoutBytes);
+                        item.Width = img.Width;
+                        item.Height = img.Height;
+
+                        // Update displayed image on UI thread
+                        App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                        {
+                            using var cutoutMs = new MemoryStream(cutoutBytes);
+                            var cutoutRas = cutoutMs.AsRandomAccessStream();
+                            var cutoutBmp = new BitmapImage();
+                            await cutoutBmp.SetSourceAsync(cutoutRas);
+                            item.Image = cutoutBmp;
+                        });
                     }
                     catch (Exception ex)
                     {
-                        item.Error = ex.Message;
+                        App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            ErrorMessage = $"AI processing failed: {ex.Message}";
+                        });
                     }
                     finally
                     {
@@ -162,14 +191,12 @@ public partial class HeadShotsViewModel : ObservableObject, IDisposable
     public void DeleteHeadShot(HeadShotItem item)
     {
         HeadShots.Remove(item);
-        // Re-number
         for (int i = 0; i < HeadShots.Count; i++)
         {
             HeadShots[i].Index = i + 1;
         }
     }
 
-    [RelayCommand]
     public async Task SaveHeadShotAsync((HeadShotItem Item, Window Window) args)
     {
         var savePath = await ExportService.PickSaveFileAsync(args.Window, $"{args.Item.Name}.png", ".png", "PNG Image");
@@ -202,11 +229,11 @@ public partial class HeadShotsViewModel : ObservableObject, IDisposable
                 var targetFile = Path.Combine(folderPath, $"{item.Name}.png");
                 await ExportService.SaveBytesToFileAsync(item.CutoutPngBytes, targetFile, _cts.Token);
             }
-            StatusMessage = $"Saved {ready.Count} head shots to {folderPath}";
+            StatusMessage = $"Exported {ready.Count} head shots to {folderPath}";
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Failed to save headshots: {ex.Message}";
+            ErrorMessage = $"Failed to save head shots: {ex.Message}";
         }
     }
 
@@ -214,16 +241,5 @@ public partial class HeadShotsViewModel : ObservableObject, IDisposable
     public void ClearAll()
     {
         HeadShots.Clear();
-        ErrorMessage = null;
-        StatusMessage = string.Empty;
-    }
-
-    public void Dispose()
-    {
-        _cts.Cancel();
-        _cts.Dispose();
-        _camera.Dispose();
-        _localCutout.Dispose();
     }
 }
-

@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Media.Capture;
 using Windows.Media.MediaProperties;
 using Windows.Storage.Streams;
@@ -60,6 +61,18 @@ public sealed class CameraService : IDisposable
         {
             return null;
         }
+    }
+
+    public async Task<BitmapImage?> CapturePreviewFrameAsync()
+    {
+        var bytes = await CapturePhotoAsync();
+        if (bytes is null || bytes.Length == 0) return null;
+
+        using var ms = new MemoryStream(bytes);
+        var ras = ms.AsRandomAccessStream();
+        var bmp = new BitmapImage();
+        await bmp.SetSourceAsync(ras);
+        return bmp;
     }
 
     public void Dispose()

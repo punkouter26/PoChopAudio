@@ -2,31 +2,21 @@
     x:Class="PoChopAudio.WinUI.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="PoChopAudio">
+    Title="PoChopAudio — Audio Chop &amp; Image Cutout">
 
     <Grid>
         <NavigationView x:Name="NavView"
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="False"
                         PaneDisplayMode="Left"
-                        ItemInvoked="OnNavigationItemInvoked"
-                        Loaded="OnNavViewLoaded">
-            <NavigationView.PaneHeader>
-                <StackPanel Orientation="Horizontal" Spacing="10" Margin="12,12,12,8">
-                    <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="6" Width="28" Height="28">
-                        <FontIcon Glyph="&#xEC4F;" FontSize="16" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <TextBlock Text="PoChopAudio" FontWeight="Bold" FontSize="16" VerticalAlignment="Center" />
-                </StackPanel>
-            </NavigationView.PaneHeader>
-
+                        ItemInvoked="OnNavItemInvoked">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Chop Audio" Tag="Chop" IsSelected="True">
+                <NavigationViewItem Content="Chop Audio" Tag="Chop">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8D6;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Cutout" Tag="Cutout">
+                <NavigationViewItem Content="Image Cutout" Tag="Cutout">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xEB9F;" />
                     </NavigationViewItem.Icon>
@@ -36,17 +26,15 @@
                         <FontIcon Glyph="&#xE722;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-            </NavigationView.MenuItems>
-
-            <NavigationView.FooterMenuItems>
                 <NavigationViewItem Content="Health &amp; Settings" Tag="Health">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE713;" />
+                        <FontIcon Glyph="&#xE958;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-            </NavigationView.FooterMenuItems>
+            </NavigationView.MenuItems>
 
             <Frame x:Name="ContentFrame" Margin="0" />
         </NavigationView>
     </Grid>
 </Window>
+

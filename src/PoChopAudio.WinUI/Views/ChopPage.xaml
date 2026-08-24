@@ -4,16 +4,13 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:PoChopAudio.WinUI.Controls"
     xmlns:common="using:PoChopAudio.WinUI.Common"
-    xmlns:models="using:PoChopAudio.WinUI.Models"
-    xmlns:shared="using:PoChopAudio.Shared">
+    xmlns:models="using:PoChopAudio.WinUI.Models">
 
     <Page.Resources>
         <common:BoolToVisibilityConverter x:Key="BoolToVis" />
         <common:BoolToVisibilityConverter x:Key="InvertedBoolToVis" Invert="True" />
         <common:InvertedBoolConverter x:Key="InvertBool" />
         <common:NullToVisibilityConverter x:Key="NullToVis" />
-        <common:SecondsToTimeConverter x:Key="SecToTime" />
-        <common:DbFormatConverter x:Key="DbFormat" />
     </Page.Resources>
 
     <ScrollViewer Padding="24,16,24,32">
@@ -37,7 +34,7 @@
                             DragOver="OnDragOver" Drop="OnDrop"
                             Background="{ThemeResource LayerFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" BorderDashArray="2,2" CornerRadius="6" Padding="24,20">
+                            BorderThickness="1" CornerRadius="6" Padding="24,20">
                         <StackPanel HorizontalAlignment="Center" Spacing="8">
                             <FontIcon Glyph="&#xE8D6;" FontSize="32" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
                             <TextBlock Text="Drop audio files here or browse from your computer"
@@ -77,13 +74,13 @@
 
                             <!-- Record / Stop Buttons -->
                             <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
-                                <Button x:Name="RecordBtn" Content="● Record"
+                                <Button x:Name="RecordBtn" Content="Record"
                                         Style="{ThemeResource AccentButtonStyle}"
                                         Background="#DC2626"
                                         Visibility="{x:Bind ViewModel.IsRecording, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}"
                                         Command="{x:Bind ViewModel.StartRecordingCommand}" />
 
-                                <Button Content="■ Stop Recording"
+                                <Button Content="Stop Recording"
                                         Style="{ThemeResource AccentButtonStyle}"
                                         Visibility="{x:Bind ViewModel.IsRecording, Mode=OneWay, Converter={StaticResource BoolToVis}}"
                                         Command="{x:Bind ViewModel.StopRecordingCommand}" />
@@ -115,15 +112,13 @@
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="20"
-                    Visibility="{x:Bind ViewModel.Files.Count, Mode=OneWay, Converter={StaticResource NullToVis}}">
+                    Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <StackPanel Spacing="16">
                     <Grid>
                         <TextBlock Text="Batch Settings" Style="{ThemeResource SubtitleTextBlockStyle}" />
-                        <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                            <Run Text="{x:Bind ViewModel.Files.Count, Mode=OneWay}" /> files · 
-                            <Run Text="{x:Bind ViewModel.TotalClips, Mode=OneWay}" /> clips
-                        </TextBlock>
+                        <TextBlock Text="{x:Bind ViewModel.FilesSummaryText, Mode=OneWay}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </Grid>
 
                     <!-- Batch Split Knobs Grid -->
@@ -252,7 +247,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
                         <Button Content="Re-split All" Style="{ThemeResource AccentButtonStyle}"
                                 Command="{x:Bind ViewModel.ResplitAllCommand}" />
-                        <Button Content="Save All to Folder…"
+                        <Button Content="Save All to Folder..."
                                 Click="OnSaveAllToFolderClicked" />
                         <Button Content="Download All as ZIP"
                                 Click="OnExportBatchZipClicked" />
@@ -284,28 +279,19 @@
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <TextBlock Text="{x:Bind FileName}" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center" />
                                             <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="3" Padding="6,1" VerticalAlignment="Center">
-                                                <TextBlock Foreground="White" FontSize="11" FontWeight="SemiBold">
-                                                    <Run Text="{x:Bind Segments.Count, Mode=OneWay}" /> takes
-                                                </TextBlock>
+                                                <TextBlock Text="{x:Bind TakesCountText, Mode=OneWay}" Foreground="White" FontSize="11" FontWeight="SemiBold" />
                                             </Border>
                                             <Border Background="#F59E0B" CornerRadius="3" Padding="6,1" VerticalAlignment="Center"
                                                     Visibility="{x:Bind Warning, Converter={StaticResource NullToVis}}">
                                                 <TextBlock Text="{x:Bind Warning}" Foreground="Black" FontSize="11" FontWeight="SemiBold" />
                                             </Border>
                                         </StackPanel>
-                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                                            <Run Text="{x:Bind DurationSeconds, Converter={StaticResource SecToTime}}" /> · 
-                                            <Run Text="{x:Bind SampleRate}" /> Hz · 
-                                            <Run Text="{x:Bind Channels}" /> ch · 
-                                            Peak <Run Text="{x:Bind PeakDb, Converter={StaticResource DbFormat}}" /> · 
-                                            Noise <Run Text="{x:Bind NoiseFloorDb, Converter={StaticResource DbFormat}}" /> · 
-                                            Gate <Run Text="{x:Bind DetectedThresholdDb, Converter={StaticResource DbFormat}}" />
-                                        </TextBlock>
+                                        <TextBlock Text="{x:Bind AudioInfoText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
 
                                     <!-- Header Controls -->
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <Button Content="▶ Play Original"
+                                        <Button Content="Play Original"
                                                 Click="OnPlayOriginalClicked" />
                                         <ToggleButton IsChecked="{x:Bind IsExpanded, Mode=TwoWay}"
                                                       Content="Tune knobs" />
@@ -369,7 +355,7 @@
                                 <!-- Takes List -->
                                 <ItemsControl ItemsSource="{x:Bind Segments}">
                                     <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="shared:ChopSegment">
+                                        <DataTemplate>
                                             <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
                                                     CornerRadius="4" Padding="8,6" Margin="0,2">
                                                 <Grid>
@@ -380,20 +366,20 @@
                                                     </Grid.ColumnDefinitions>
 
                                                     <TextBlock Grid.Column="0" FontWeight="SemiBold" VerticalAlignment="Center">
-                                                        Take <Run Text="{x:Bind Index}" />
+                                                        Take <Run Text="{Binding Index}" />
                                                     </TextBlock>
 
                                                     <TextBlock Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center"
                                                                FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                                                        <Run Text="{x:Bind StartSeconds, Converter={StaticResource SecToTime}}" /> – 
-                                                        <Run Text="{x:Bind EndSeconds, Converter={StaticResource SecToTime}}" /> 
-                                                        (<Run Text="{x:Bind DurationSeconds, Converter={StaticResource SecToTime}}" />) · 
-                                                        Peak <Run Text="{x:Bind PeakDb, Converter={StaticResource DbFormat}}" />
+                                                        <Run Text="{Binding StartSeconds}" />s – 
+                                                        <Run Text="{Binding EndSeconds}" />s 
+                                                        (<Run Text="{Binding DurationSeconds}" />s) · 
+                                                        Peak <Run Text="{Binding PeakDb}" /> dB
                                                     </TextBlock>
 
                                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                                        <Button Content="▶ Play" Click="OnPlayTakeItemClicked" />
-                                                        <Button Content="💾 Save WAV…" Click="OnSaveTakeItemClicked" />
+                                                        <Button Content="Play" Click="OnPlayTakeItemClicked" />
+                                                        <Button Content="Save WAV..." Click="OnSaveTakeItemClicked" />
                                                     </StackPanel>
                                                 </Grid>
                                             </Border>

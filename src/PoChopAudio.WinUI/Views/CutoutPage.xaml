@@ -34,7 +34,7 @@
                     <Border AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop"
                             Background="{ThemeResource LayerFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" BorderDashArray="2,2" CornerRadius="6" Padding="24,20">
+                            BorderThickness="1" CornerRadius="6" Padding="24,20">
                         <StackPanel HorizontalAlignment="Center" Spacing="8">
                             <FontIcon Glyph="&#xEB9F;" FontSize="32" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
                             <TextBlock Text="Drop images here or browse from your computer"
@@ -102,7 +102,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Content="Re-process All" Style="{ThemeResource AccentButtonStyle}"
                                 Command="{x:Bind ViewModel.ReprocessAllCommand}" />
-                        <Button Content="Save All to Folder…" Click="OnSaveAllToFolderClicked" />
+                        <Button Content="Save All to Folder..." Click="OnSaveAllToFolderClicked" />
                         <Button Content="Download All as ZIP" Click="OnExportBatchZipClicked" />
                         <Button Content="Clear All" Command="{x:Bind ViewModel.ClearAllCommand}" />
                     </StackPanel>
@@ -136,14 +136,11 @@
 
                                     <StackPanel Grid.Column="0" Spacing="2">
                                         <TextBlock Text="{x:Bind FileName}" FontWeight="SemiBold" FontSize="15" />
-                                        <TextBlock FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                                            <Run Text="{x:Bind Width}" /> × <Run Text="{x:Bind Height}" /> px · 
-                                            <Run Text="{x:Bind Bytes}" /> bytes
-                                        </TextBlock>
+                                        <TextBlock Text="{x:Bind DetailsText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
 
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                        <Button Content="💾 Save Cutout PNG…" Click="OnSaveSingleCutoutClicked" />
+                                        <Button Content="Save Cutout PNG..." Click="OnSaveSingleCutoutClicked" />
                                         <Button Content="Re-process" Click="OnReprocessSingleClicked" />
                                     </StackPanel>
                                 </Grid>

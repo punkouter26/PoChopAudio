@@ -4,15 +4,6 @@ using PoChopAudio.Shared;
 
 namespace PoChopAudio.WinUI.Models;
 
-public enum ItemProcessingStatus
-{
-    Queued,
-    Uploading,
-    Analyzing,
-    Ready,
-    Failed
-}
-
 public partial class ChopFileItem : ObservableObject
 {
     [ObservableProperty]
@@ -81,6 +72,10 @@ public partial class ChopFileItem : ObservableObject
     public bool IsReady => Status == ItemProcessingStatus.Ready && Segments.Count > 0;
 
     public bool NeedsAttention => Warning is not null || (IsReady && Segments.Count != Settings.ExpectedSegments);
+
+    public string AudioInfoText => $"{DurationSeconds:F1}s · {SampleRate} Hz · {Channels} ch · Peak {PeakDb:F1} dB · Noise {NoiseFloorDb:F1} dB · Gate {DetectedThresholdDb:F1} dB";
+
+    public string TakesCountText => $"{Segments.Count} takes";
 
     public int Version { get; set; } = 1;
 }

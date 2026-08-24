@@ -9,7 +9,7 @@ public sealed class ExportService
     public static async Task<string?> PickFolderAsync(Window window)
     {
         var picker = new FolderPicker();
-        WindowHelper.InitializeWithWindow(picker, window);
+        WindowHelper.InitWithWindow(picker, window);
         picker.SuggestedStartLocation = PickerLocationId.Downloads;
         picker.FileTypeFilter.Add("*");
 
@@ -20,7 +20,7 @@ public sealed class ExportService
     public static async Task<string?> PickSaveFileAsync(Window window, string defaultName, string extension, string fileTypeDesc)
     {
         var picker = new FileSavePicker();
-        WindowHelper.InitializeWithWindow(picker, window);
+        WindowHelper.InitWithWindow(picker, window);
         picker.SuggestedStartLocation = PickerLocationId.Downloads;
         picker.SuggestedFileName = defaultName;
         picker.FileTypeChoices.Add(fileTypeDesc, [extension]);

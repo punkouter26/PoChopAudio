@@ -9,13 +9,13 @@ public partial class HeadShotItem : ObservableObject
     private string _id = Guid.NewGuid().ToString("N");
 
     [ObservableProperty]
-    private string _name = string.Empty;
-
-    [ObservableProperty]
     private int _index;
 
     [ObservableProperty]
-    private DateTimeOffset _capturedAt = DateTimeOffset.Now;
+    private string _name = string.Empty;
+
+    [ObservableProperty]
+    private byte[] _originalJpegBytes = [];
 
     [ObservableProperty]
     private byte[] _cutoutPngBytes = [];
@@ -32,7 +32,6 @@ public partial class HeadShotItem : ObservableObject
     [ObservableProperty]
     private bool _isProcessing;
 
-    [ObservableProperty]
-    private string? _error;
+    public string DimensionsText => Width > 0 && Height > 0 ? $"{Width} × {Height} px" : "";
 }
 

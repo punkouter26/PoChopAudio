@@ -7,7 +7,7 @@ namespace PoChopAudio.WinUI.Models;
 public partial class CutoutFileItem : ObservableObject
 {
     [ObservableProperty]
-    private string _jobId = string.Empty;
+    private string _id = Guid.NewGuid().ToString("N");
 
     [ObservableProperty]
     private string _fileName = string.Empty;
@@ -16,22 +16,22 @@ public partial class CutoutFileItem : ObservableObject
     private string? _localFilePath;
 
     [ObservableProperty]
+    private long _bytes;
+
+    [ObservableProperty]
     private int _width;
 
     [ObservableProperty]
     private int _height;
 
     [ObservableProperty]
-    private long _bytes;
-
-    [ObservableProperty]
-    private string? _warning;
-
-    [ObservableProperty]
-    private CutoutKnobsModel _settings = new();
+    private string? _jobId;
 
     [ObservableProperty]
     private ItemProcessingStatus _status = ItemProcessingStatus.Queued;
+
+    [ObservableProperty]
+    private string? _warning;
 
     [ObservableProperty]
     private string? _errorMessage;
@@ -43,8 +43,8 @@ public partial class CutoutFileItem : ObservableObject
     private BitmapImage? _cutoutImage;
 
     [ObservableProperty]
-    private double _splitOffset = 0.5;
+    private CutoutKnobsModel _settings = new();
 
-    public bool IsReady => Status == ItemProcessingStatus.Ready && CutoutImage is not null;
+    public bool IsReady => Status == ItemProcessingStatus.Ready;
+    public string DetailsText => $"{Width} × {Height} px · {Bytes:N0} bytes";
 }
-

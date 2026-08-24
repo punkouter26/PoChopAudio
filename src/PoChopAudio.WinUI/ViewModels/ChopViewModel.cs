@@ -61,6 +61,18 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         {
             _debouncer.Debounce(async () => await ResplitBatchAutoAsync());
         };
+
+        Files.CollectionChanged += (s, e) => NotifyCountProperties();
+    }
+
+    public void NotifyCountProperties()
+    {
+        OnPropertyChanged(nameof(HasFiles));
+        OnPropertyChanged(nameof(FilesSummaryText));
+        OnPropertyChanged(nameof(TotalClips));
+        OnPropertyChanged(nameof(ReadyCount));
+        OnPropertyChanged(nameof(AttentionCount));
+        OnPropertyChanged(nameof(UntunedCount));
     }
 
     [ObservableProperty]
@@ -108,6 +120,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private ChopCapabilities? _capabilities;
 
+    public bool HasFiles => Files.Count > 0;
+    public string FilesSummaryText => $"{Files.Count} files · {TotalClips} clips";
     public int TotalClips => Files.Sum(f => f.Segments.Count);
     public int ReadyCount => Files.Count(f => f.IsReady);
     public int AttentionCount => Files.Count(f => f.NeedsAttention);
@@ -123,7 +137,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     {
         ErrorMessage = null;
         var picker = new FileOpenPicker();
-        WindowHelper.InitializeWithWindow(picker, window);
+        WindowHelper.InitWithWindow(picker, window);
         picker.SuggestedStartLocation = PickerLocationId.MusicLibrary;
 
         var exts = Capabilities?.SupportedExtensions ?? [".wav", ".mp3", ".aiff", ".aif"];
@@ -348,7 +362,6 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         _ = ResplitOneAsync(item);
     }
 
-    [RelayCommand]
     public async Task PlayTakeAsync(ChopFileItem item, ChopSegment? segment)
     {
         if (item.IsPlaying && item.PlayingSegmentIndex == segment?.Index)

@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
-using WinRT.Interop;
 
 namespace PoChopAudio.WinUI.Common;
 
@@ -10,13 +10,13 @@ public static class WindowHelper
 {
     public static nint GetHwnd(this Window window)
     {
-        return WindowNative.GetWindowHandle(window);
+        return WinRT.Interop.WindowNative.GetWindowHandle(window);
     }
 
-    public static void InitializeWithWindow(object target, Window window)
+    public static void InitWithWindow(object target, Window window)
     {
         var hwnd = window.GetHwnd();
-        InitializeWithWindow.Initialize(target, hwnd);
+        WinRT.Interop.InitializeWithWindow.Initialize(target, hwnd);
     }
 
     public static void SetWindowSize(this Window window, int width, int height)

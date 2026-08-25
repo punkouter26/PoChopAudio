@@ -13,13 +13,22 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Views\ChopPage.xaml;Views\ChopPage.xaml.cs;Views\HeadShotsPage.xaml;Views\HeadShotsPage.xaml.cs</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Views\ChopPage.xaml;Views\ChopPage.xaml.cs</DefaultItemExcludes>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="..\PoChopAudio.API\Content\Models\u2netp.onnx"
+             Condition="Exists('..\PoChopAudio.API\Content\Models\u2netp.onnx')">
+      <Link>Content\Models\u2netp.onnx</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\PoChopAudio.Shared\PoChopAudio.Shared.csproj" />
+    <ProjectReference Include="..\PoChopAudio.Services\PoChopAudio.Services.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,6 +40,7 @@
     <PackageReference Include="SixLabors.ImageSharp" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
   </ItemGroup>
 
 </Project>

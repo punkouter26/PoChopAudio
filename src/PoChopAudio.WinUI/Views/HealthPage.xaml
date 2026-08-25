@@ -17,16 +17,16 @@
             <!-- Title -->
             <StackPanel Spacing="4">
                 <TextBlock Text="System Health &amp; Settings" Style="{ThemeResource TitleTextBlockStyle}" />
-                <TextBlock Text="Manage connection to the PoChopAudio backend API and inspect diagnostics."
+                <TextBlock Text="See what this build can decode and which cutout engines are available."
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
 
-            <!-- API Connection Card -->
+            <!-- Local Capability Card -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="20">
                 <StackPanel Spacing="16">
-                    <TextBlock Text="Backend API Connection" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Local Processing" Style="{ThemeResource SubtitleTextBlockStyle}" />
 
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
@@ -34,10 +34,11 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBox Grid.Column="0" Header="API Base URL" Text="{x:Bind ViewModel.ServerUrl, Mode=TwoWay}"
-                                 PlaceholderText="http://localhost:5177" />
-                        <Button Grid.Column="1" Content="Test Connection" Style="{ThemeResource AccentButtonStyle}"
-                                VerticalAlignment="Bottom"
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Audio and image processing run inside this app. No server is used and nothing is uploaded." />
+                        <Button Grid.Column="1" Content="Re-check" Style="{ThemeResource AccentButtonStyle}"
+                                VerticalAlignment="Center"
                                 Command="{x:Bind ViewModel.RefreshHealthCommand}" />
                     </Grid>
 
@@ -56,13 +57,13 @@
                 </StackPanel>
             </Border>
 
-            <!-- Capabilities Card (When Connected) -->
+            <!-- Capabilities Card -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="20"
                     Visibility="{x:Bind ViewModel.IsHealthy, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <StackPanel Spacing="16">
-                    <TextBlock Text="Server Capabilities" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Capabilities" Style="{ThemeResource SubtitleTextBlockStyle}" />
 
                     <Grid ColumnSpacing="24">
                         <Grid.ColumnDefinitions>
@@ -95,7 +96,7 @@
                     BorderThickness="1" CornerRadius="8" Padding="20"
                     Visibility="{x:Bind ViewModel.DiagnosticsJson, Mode=OneWay, Converter={StaticResource NullToVis}}">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="Diagnostics Output (/diag)" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="Diagnostics" Style="{ThemeResource SubtitleTextBlockStyle}" />
                     <TextBox Text="{x:Bind ViewModel.DiagnosticsJson, Mode=OneWay}"
                              IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
                              FontFamily="Consolas" Height="180" />

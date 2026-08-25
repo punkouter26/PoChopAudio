@@ -16,12 +16,7 @@
                         <FontIcon Glyph="&#xE8D6;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Image Cutout" Tag="Cutout">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xEB9F;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
-                <NavigationViewItem Content="Head Shots" Tag="HeadShots">
+                <NavigationViewItem Content="Cutout Studio" Tag="Cutout">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE722;" />
                     </NavigationViewItem.Icon>

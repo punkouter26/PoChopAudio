@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
+using PoChopAudio.Services.Cutout;
 using PoChopAudio.Shared;
 using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Models;
@@ -13,13 +14,15 @@ namespace PoChopAudio.WinUI.ViewModels;
 
 public partial class CutoutViewModel : ObservableObject, IDisposable
 {
-    private readonly CutoutApiClient _apiClient;
+    private readonly CutoutService _cutout;
+    private readonly CameraService _camera;
     private readonly Debouncer _debouncer = new(TimeSpan.FromMilliseconds(350));
     private CancellationTokenSource _cts = new();
 
-    public CutoutViewModel(CutoutApiClient apiClient)
+    public CutoutViewModel(CutoutService cutout, CameraService camera)
     {
-        _apiClient = apiClient;
+        _cutout = cutout;
+        _camera = camera;
 
         BatchKnobs.PropertyChanged += (s, e) =>
         {
@@ -32,9 +35,6 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private CutoutKnobsModel _batchKnobs = new();
-
-    [ObservableProperty]
-    private ObservableCollection<BatchEntry> _recentBatches = [];
 
     [ObservableProperty]
     private bool _isBusy;
@@ -51,12 +51,23 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private CutoutCapabilities? _capabilities;
 
+    [ObservableProperty]
+    private bool _isCameraRunning;
+
+    [ObservableProperty]
+    private bool _isCapturing;
+
+    /// <summary>The live camera. The page binds its frames straight to a SoftwareBitmapSource.</summary>
+    public CameraService Camera => _camera;
+
+    public bool HasFiles => Files.Count > 0;
+
     public int ReadyCount => Files.Count(f => f.IsReady);
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
-        Capabilities = await _apiClient.GetCapabilitiesAsync();
-        await LoadRecentBatchesAsync();
+        Capabilities = _cutout.GetCapabilities();
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -162,17 +173,16 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
                 _ => "image/png"
             };
 
-            var uploadResult = await _apiClient.UploadAsync(stream, fileName, contentType, _cts.Token);
+            var uploadResult = (await _cutout.UploadAsync(stream, fileName, stream.Length, _cts.Token)).OrThrow();
             item.JobId = uploadResult.JobId;
             item.Width = uploadResult.Width;
             item.Height = uploadResult.Height;
 
             item.Status = ItemProcessingStatus.Analyzing;
-            var result = await _apiClient.AnalyzeAsync(item.JobId, item.Settings.ToOptions(), _cts.Token);
+            var result = (await _cutout.AnalyzeAsync(item.JobId, item.Settings.ToOptions(), _cts.Token)).OrThrow();
             item.Warning = result.Warning;
 
-            // Fetch transparent cutout png
-            var pngBytes = await _apiClient.GetCutoutImageAsync(item.JobId, _cts.Token);
+            var pngBytes = _cutout.GetImage(item.JobId).OrThrow().Content;
             await SetCutoutImageAsync(item, pngBytes);
 
             item.Status = ItemProcessingStatus.Ready;
@@ -237,10 +247,10 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
         try
         {
             item.Status = ItemProcessingStatus.Analyzing;
-            var result = await _apiClient.AnalyzeAsync(item.JobId, item.Settings.ToOptions(), _cts.Token);
+            var result = (await _cutout.AnalyzeAsync(item.JobId, item.Settings.ToOptions(), _cts.Token)).OrThrow();
             item.Warning = result.Warning;
 
-            var pngBytes = await _apiClient.GetCutoutImageAsync(item.JobId, _cts.Token);
+            var pngBytes = _cutout.GetImage(item.JobId).OrThrow().Content;
             await SetCutoutImageAsync(item, pngBytes);
 
             item.Status = ItemProcessingStatus.Ready;
@@ -268,8 +278,9 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
         try
         {
             var jobIds = ready.Where(f => !string.IsNullOrEmpty(f.JobId)).Select(f => f.JobId!).ToList();
-            await using var stream = await _apiClient.GetBatchZipStreamAsync(jobIds, FilenameTemplate, _cts.Token);
-            await ExportService.SaveStreamToFileAsync(stream, savePath, _cts.Token);
+            var zip = await Task.Run(
+                () => _cutout.GetBatchZip(jobIds, FilenameTemplate).OrThrow(), _cts.Token);
+            await ExportService.SaveBytesToFileAsync(zip.Content, savePath, _cts.Token);
             StatusMessage = $"Saved ZIP to {Path.GetFileName(savePath)}";
         }
         catch (Exception ex)
@@ -300,7 +311,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
                 var stem = Path.GetFileNameWithoutExtension(item.FileName);
                 StatusMessage = $"Saving {stem}_cutout.png ({i + 1} of {ready.Count})…";
 
-                var pngBytes = await _apiClient.GetCutoutImageAsync(item.JobId!, _cts.Token);
+                var pngBytes = _cutout.GetImage(item.JobId!).OrThrow().Content;
                 var targetFile = Path.Combine(folderPath, $"{stem}_cutout.png");
                 await ExportService.SaveBytesToFileAsync(pngBytes, targetFile, _cts.Token);
             }
@@ -326,7 +337,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
 
         try
         {
-            var bytes = await _apiClient.GetCutoutImageAsync(args.Item.JobId!, _cts.Token);
+            var bytes = _cutout.GetImage(args.Item.JobId!).OrThrow().Content;
             await ExportService.SaveBytesToFileAsync(bytes, savePath, _cts.Token);
         }
         catch (Exception ex)
@@ -344,29 +355,97 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
         NotifyCountProperties();
     }
 
-    [RelayCommand]
-    public async Task LoadRecentBatchesAsync()
+    /// <summary>Brings the viewfinder up. Safe to call repeatedly.</summary>
+    public async Task<bool> StartCameraAsync()
     {
-        var list = await _apiClient.ListBatchesAsync(_cts.Token);
-        RecentBatches.Clear();
-        if (list is not null)
+        if (IsCameraRunning) return true;
+
+        if (await _camera.StartAsync())
         {
-            foreach (var b in list)
+            IsCameraRunning = true;
+            return true;
+        }
+
+        ErrorMessage = "Could not start the camera. Check that one is connected and that this app has camera permission.";
+        return false;
+    }
+
+    public async Task StopCameraAsync()
+    {
+        await _camera.StopAsync();
+        IsCameraRunning = false;
+    }
+
+    /// <summary>
+    /// Takes one frame and sends it straight to the results below. There is nothing to configure
+    /// and nothing to confirm — the shot appears in the list and starts cutting itself out.
+    /// </summary>
+    [RelayCommand]
+    public async Task TakePhotoAsync()
+    {
+        if (IsCapturing) return;
+
+        IsCapturing = true;
+        ErrorMessage = null;
+
+        try
+        {
+            // Starting on demand means the button works from a cold page without a separate
+            // "start camera" step; a running camera makes this a no-op.
+            if (!IsCameraRunning && !await StartCameraAsync())
             {
-                RecentBatches.Add(b);
+                return;
             }
+
+            var png = await _camera.CapturePngAsync();
+            if (png is null || png.Length == 0)
+            {
+                ErrorMessage = "Could not capture a frame from the camera.";
+                return;
+            }
+
+            await AddPhotoAsync(png);
+        }
+        finally
+        {
+            IsCapturing = false;
         }
     }
 
-    [RelayCommand]
-    public async Task DeleteRecentBatchAsync(string batchId)
+    /// <summary>Adds one in-memory photo and cuts it out. Nothing touches disk or a network.</summary>
+    private async Task AddPhotoAsync(byte[] png)
     {
-        await _apiClient.DeleteBatchAsync(batchId, _cts.Token);
-        await LoadRecentBatchesAsync();
+        var item = new CutoutFileItem
+        {
+            FileName = $"photo_{Files.Count + 1}.png",
+            Bytes = png.Length,
+            Settings = BatchKnobs.Clone(),
+            Status = ItemProcessingStatus.Queued,
+        };
+
+        try
+        {
+            using var preview = new MemoryStream(png);
+            var bmp = new BitmapImage();
+            await bmp.SetSourceAsync(preview.AsRandomAccessStream());
+            item.OriginalImage = bmp;
+        }
+        catch
+        {
+            // Thumbnail only; the cutout below does not depend on it.
+        }
+
+        Files.Add(item);
+        NotifyCountProperties();
+
+        using var source = new MemoryStream(png);
+        await UploadAndProcessItemAsync(item, source, item.FileName);
+        NotifyCountProperties();
     }
 
     private void NotifyCountProperties()
     {
+        OnPropertyChanged(nameof(HasFiles));
         OnPropertyChanged(nameof(ReadyCount));
     }
 
@@ -375,6 +454,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
         _cts.Cancel();
         _cts.Dispose();
         _debouncer.Dispose();
+        _camera.Dispose();
     }
 }
 

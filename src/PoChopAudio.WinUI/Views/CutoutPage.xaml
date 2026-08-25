@@ -4,8 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:PoChopAudio.WinUI.Controls"
     xmlns:common="using:PoChopAudio.WinUI.Common"
-    xmlns:models="using:PoChopAudio.WinUI.Models"
-    xmlns:shared="using:PoChopAudio.Shared">
+    xmlns:models="using:PoChopAudio.WinUI.Models">
 
     <Page.Resources>
         <common:BoolToVisibilityConverter x:Key="BoolToVis" />
@@ -17,108 +16,46 @@
     <ScrollViewer Padding="24,16,24,32">
         <StackPanel Spacing="16" MaxWidth="1100" HorizontalAlignment="Stretch">
 
-            <!-- Title -->
-            <StackPanel Spacing="4">
-                <TextBlock Text="Strip the background from photos" Style="{ThemeResource TitleTextBlockStyle}" />
-                <TextBlock Text="Drop one image or a folder. Each one is cut out on-device with AI, then exported with a single click."
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-
-            <!-- Drop Zone & Controls Card -->
+            <!-- ── Camera ───────────────────────────────────────────────────── -->
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="20">
                 <StackPanel Spacing="16">
 
-                    <!-- Drop Zone -->
-                    <Border AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop"
-                            Background="{ThemeResource LayerFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1" CornerRadius="6" Padding="24,20">
-                        <StackPanel HorizontalAlignment="Center" Spacing="8">
-                            <FontIcon Glyph="&#xEB9F;" FontSize="32" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
-                            <TextBlock Text="Drop images here or browse from your computer"
-                                       FontWeight="SemiBold" HorizontalAlignment="Center" />
-                            <TextBlock Text="Supports JPG, PNG, WebP — up to 32 images per batch"
-                                       FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
-                            <Button Content="Browse Images" Style="{ThemeResource AccentButtonStyle}"
-                                    HorizontalAlignment="Center" Margin="0,4,0,0"
-                                    Click="OnBrowseFilesClicked" />
-                        </StackPanel>
-                    </Border>
+                    <Grid Height="380" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}">
+                        <Image x:Name="PreviewImage" Stretch="Uniform"
+                               Visibility="{x:Bind ViewModel.IsCameraRunning, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
 
-                    <!-- Batch Knobs -->
-                    <Grid ColumnSpacing="16" RowSpacing="12">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-
-                        <!-- Alpha Threshold -->
-                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
-                            <Grid>
-                                <TextBlock Text="Alpha Threshold" FontWeight="SemiBold" />
-                                <TextBlock Text="{x:Bind ViewModel.BatchKnobs.AlphaThreshold, Mode=OneWay}" HorizontalAlignment="Right" />
-                            </Grid>
-                            <Slider Value="{x:Bind ViewModel.BatchKnobs.AlphaThreshold, Mode=TwoWay}"
-                                    Minimum="0" Maximum="255" StepFrequency="1" />
-                        </StackPanel>
-
-                        <!-- Feather Radius -->
-                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
-                            <Grid>
-                                <TextBlock Text="Feather (px)" FontWeight="SemiBold" />
-                                <TextBlock Text="{x:Bind ViewModel.BatchKnobs.FeatherRadius, Mode=OneWay}" HorizontalAlignment="Right" />
-                            </Grid>
-                            <Slider Value="{x:Bind ViewModel.BatchKnobs.FeatherRadius, Mode=TwoWay}"
-                                    Minimum="0" Maximum="20" StepFrequency="1" />
-                        </StackPanel>
-
-                        <!-- Morphology -->
-                        <StackPanel Grid.Row="0" Grid.Column="2" Spacing="4">
-                            <Grid>
-                                <TextBlock Text="Erode / Dilate" FontWeight="SemiBold" />
-                                <TextBlock Text="{x:Bind ViewModel.BatchKnobs.Morphology, Mode=OneWay}" HorizontalAlignment="Right" />
-                            </Grid>
-                            <Slider Value="{x:Bind ViewModel.BatchKnobs.Morphology, Mode=TwoWay}"
-                                    Minimum="-10" Maximum="10" StepFrequency="1" />
-                        </StackPanel>
-
-                        <!-- Trim Transparent Edges -->
-                        <StackPanel Grid.Row="0" Grid.Column="3" Spacing="4">
-                            <TextBlock Text="Trim Edges" FontWeight="SemiBold" />
-                            <ToggleSwitch IsOn="{x:Bind ViewModel.BatchKnobs.TrimTransparentEdges, Mode=TwoWay}"
-                                          OnContent="Auto-crop" OffContent="Keep size" />
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8"
+                                    Visibility="{x:Bind ViewModel.IsCameraRunning, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}">
+                            <FontIcon Glyph="&#xE722;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                            <TextBlock Text="Starting camera…" HorizontalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                     </Grid>
 
-                    <!-- Batch Actions -->
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Re-process All" Style="{ThemeResource AccentButtonStyle}"
-                                Command="{x:Bind ViewModel.ReprocessAllCommand}" />
-                        <Button Content="Save All to Folder..." Click="OnSaveAllToFolderClicked" />
-                        <Button Content="Download All as ZIP" Click="OnExportBatchZipClicked" />
-                        <Button Content="Clear All" Command="{x:Bind ViewModel.ClearAllCommand}" />
-                    </StackPanel>
+                    <Button Content="TAKE PHOTO" Style="{ThemeResource AccentButtonStyle}"
+                            HorizontalAlignment="Stretch" Height="56" FontSize="16" FontWeight="SemiBold"
+                            Command="{x:Bind ViewModel.TakePhotoCommand}"
+                            IsEnabled="{x:Bind ViewModel.IsCapturing, Mode=OneWay, Converter={StaticResource InvertBool}}" />
 
-                    <!-- Busy / Status -->
-                    <ProgressBar IsIndeterminate="True" Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
-                    <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                               Visibility="{x:Bind ViewModel.StatusMessage, Mode=OneWay, Converter={StaticResource NullToVis}}"
-                               Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" />
-                    <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                    <ProgressBar IsIndeterminate="True"
+                                 Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" TextWrapping="Wrap"
                                Visibility="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NullToVis}}"
                                Foreground="#EF4444" FontWeight="SemiBold" />
                 </StackPanel>
             </Border>
 
-            <!-- Image Cards List -->
+            <!-- ── Results ──────────────────────────────────────────────────── -->
+            <Grid Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Results" Style="{ThemeResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button Content="Save All to Folder..." Click="OnSaveAllToFolderClicked" />
+                    <Button Content="Clear" Command="{x:Bind ViewModel.ClearAllCommand}" />
+                </StackPanel>
+            </Grid>
+
             <ItemsControl ItemsSource="{x:Bind ViewModel.Files}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:CutoutFileItem">
@@ -127,25 +64,21 @@
                                 BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
                             <StackPanel Spacing="12">
 
-                                <!-- Card Header -->
-                                <Grid>
+                                <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0" Spacing="2">
-                                        <TextBlock Text="{x:Bind FileName}" FontWeight="SemiBold" FontSize="15" />
-                                        <TextBlock Text="{x:Bind DetailsText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="{x:Bind FileName, Mode=OneWay}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap" />
+                                        <TextBlock Text="{x:Bind DetailsText, Mode=OneWay}" FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
 
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                        <Button Content="Save Cutout PNG..." Click="OnSaveSingleCutoutClicked" />
-                                        <Button Content="Re-process" Click="OnReprocessSingleClicked" />
-                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Save PNG..." Click="OnSaveSingleCutoutClicked" />
                                 </Grid>
 
-                                <!-- Before / After Split View -->
                                 <controls:BeforeAfterView Item="{x:Bind}" />
                             </StackPanel>
                         </Border>
@@ -156,4 +89,3 @@
         </StackPanel>
     </ScrollViewer>
 </Page>
-

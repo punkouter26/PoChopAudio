@@ -14,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddSingleton<ChopJobStore>();
+builder.Services.AddSingleton<ChopService>();
 builder.Services.AddHostedService<ChopJobCleanup>();
 
 builder.Services.AddSingleton<CutoutJobStore>();
@@ -22,6 +23,7 @@ builder.Services.AddSingleton(new CutoutModelOptions(
     Path.Combine(builder.Environment.ContentRootPath, "Content", "Models", "u2netp.onnx")));
 builder.Services.AddSingleton<IBackgroundRemover, OnnxU2NetRemover>();
 builder.Services.AddSingleton<EnginePicker>();
+builder.Services.AddSingleton<CutoutService>();
 
 builder.Services.AddSingleton<AzuriteBlobStore>();
 builder.Services.AddSingleton<JobArchive>();

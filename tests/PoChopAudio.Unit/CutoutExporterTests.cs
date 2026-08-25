@@ -1,4 +1,3 @@
-using PoChopAudio.API.Features.Cutout;
 using PoChopAudio.Services.Cutout;
 using PoChopAudio.Shared;
 
@@ -68,12 +67,9 @@ public sealed class CutoutExporterTests
         Assert.True(errors.ContainsKey(nameof(options.AlphaMultiplier)));
     }
 
-    private static Dictionary<string, string[]> InvokeValidate(CutoutOptions options)
-    {
-        // The Validate method is private. Reflection is the simplest way to assert the contract
-        // without exposing it; the alternative is making the method public for tests.
-        var method = typeof(CutoutEndpoints).GetMethod("Validate", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        Assert.NotNull(method);
-        return (Dictionary<string, string[]>)method!.Invoke(null, [options])!;
-    }
+    // Validate moved from CutoutEndpoints to CutoutService when the logic left the HTTP layer.
+    // It is internal and this project is named in the Services assembly's InternalsVisibleTo, so
+    // the reflection workaround this helper used to need is gone.
+    private static Dictionary<string, string[]> InvokeValidate(CutoutOptions options) =>
+        CutoutService.Validate(options);
 }

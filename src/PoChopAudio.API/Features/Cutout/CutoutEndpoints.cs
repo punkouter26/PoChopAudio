@@ -1,16 +1,17 @@
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
-using PoChopAudio.Shared;
+using PoChopAudio.Services;
 using PoChopAudio.Services.Cutout;
+using PoChopAudio.Shared;
 
 namespace PoChopAudio.API.Features.Cutout;
 
+/// <summary>
+/// HTTP surface over <see cref="CutoutService"/>. Two routes have no service counterpart because
+/// they exist only for the browser client: <c>/model</c> ships it the ONNX file, and
+/// <c>/progress</c> republishes the progress channel as server-sent events.
+/// </summary>
 public static class CutoutEndpoints
 {
-    private const string PngContentType = "image/png";
-    private const string ZipContentType = "application/zip";
-
     public static IEndpointRouteBuilder MapCutoutEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/cutout")
@@ -20,7 +21,7 @@ public static class CutoutEndpoints
         group.MapPost("/upload", UploadAsync)
             .WithSummary("Upload an image and decode it for cutout");
 
-        group.MapGet("/capabilities", GetCapabilities)
+        group.MapGet("/capabilities", (CutoutService service) => TypedResults.Ok(service.GetCapabilities()))
             .WithSummary("Image formats and engines available on this server");
 
         // HEAD as well as GET: the browser engine probes this before offering itself, and a
@@ -59,11 +60,9 @@ public static class CutoutEndpoints
     /// browser side needs in order to report itself unavailable rather than feeding an HTML error
     /// page to the ONNX parser.
     /// </summary>
-    private static Results<PhysicalFileHttpResult, NotFound<string>> GetModel(IWebHostEnvironment env)
+    private static Results<PhysicalFileHttpResult, NotFound<string>> GetModel(CutoutModelOptions model)
     {
-        var path = Path.Combine(env.ContentRootPath, "Content", "Models", "u2netp.onnx");
-
-        if (!File.Exists(path))
+        if (!File.Exists(model.ModelPath))
         {
             return TypedResults.NotFound(
                 "u2netp.onnx is not present on this server. Run SCRIPTS/download-models.ps1 to fetch it.");
@@ -71,170 +70,38 @@ public static class CutoutEndpoints
 
         // The model never changes for a given deployment, so let the browser and its IndexedDB copy
         // keep it rather than re-downloading 4.4 MB on every cold load.
-        return TypedResults.PhysicalFile(path, OnnxContentType, enableRangeProcessing: true);
+        return TypedResults.PhysicalFile(model.ModelPath, OnnxContentType, enableRangeProcessing: true);
     }
 
     private static async Task<Results<Ok<CutoutUploadResult>, ProblemHttpResult>> UploadAsync(
         IFormFile file,
-        CutoutJobStore store,
-        ILoggerFactory loggerFactory,
+        CutoutService service,
         CancellationToken cancellationToken)
     {
-        if (file.Length == 0)
-        {
-            return TypedResults.Problem("The uploaded file is empty.", statusCode: StatusCodes.Status400BadRequest);
-        }
+        await using var stream = file.OpenReadStream();
+        var outcome = await service.UploadAsync(stream, file.FileName, file.Length, cancellationToken)
+            .ConfigureAwait(false);
 
-        if (file.Length > CutoutLimits.MaxUploadBytes)
-        {
-            return TypedResults.Problem(
-                $"The file is larger than the {CutoutLimits.MaxUploadBytes / (1024 * 1024)} MB limit.",
-                statusCode: StatusCodes.Status413PayloadTooLarge);
-        }
-
-        var extension = Path.GetExtension(file.FileName);
-        if (!ImageDecoder.IsSupportedExtension(extension))
-        {
-            return TypedResults.Problem(
-                $"'{extension}' is not a supported image format. Supported: {string.Join(", ", ImageDecoder.SupportedExtensions)}.",
-                statusCode: StatusCodes.Status415UnsupportedMediaType);
-        }
-
-        if (!ImageDecoder.IsAcceptedContentType(file.ContentType))
-        {
-            // Soft warn: the browser sometimes hands us 'application/octet-stream' for drag-drops. We
-            // continue as long as the file extension is one we accept.
-        }
-
-        var logger = CutoutLog.CreateLogger(loggerFactory);
-
-        try
-        {
-            await using var stream = file.OpenReadStream();
-            var decoded = await Task.Run(() => ImageDecoder.Decode(stream, file.FileName), cancellationToken).ConfigureAwait(false);
-
-            var job = store.Create(file.FileName, decoded.Width, decoded.Height, decoded.Rgba, decoded.ContentType);
-
-            CutoutLog.Decoded(logger, file.FileName, job.Id.ToString(), decoded.Width, decoded.Height, decoded.Rgba.Length, decoded.WasMotionPhoto);
-
-            return TypedResults.Ok(new CutoutUploadResult(
-                JobId: job.Id.ToString(),
-                FileName: file.FileName,
-                Width: decoded.Width,
-                Height: decoded.Height,
-                Bytes: decoded.Rgba.Length,
-                ContentType: decoded.ContentType));
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            CutoutLog.DecodeFailed(logger, file.FileName, exception);
-            return TypedResults.Problem(
-                $"Could not decode '{file.FileName}'. It may be corrupt or use an unsupported codec.",
-                statusCode: StatusCodes.Status422UnprocessableEntity);
-        }
-    }
-
-    private static Ok<CutoutCapabilities> GetCapabilities(EnginePicker picker)
-    {
-        return TypedResults.Ok(new CutoutCapabilities(
-            SupportedExtensions: ImageDecoder.SupportedExtensions,
-            AvailableEngines: picker.AvailableEngines,
-            MaxBatchFiles: CutoutLimits.MaxBatchFiles,
-            MaxUploadMb: (int)(CutoutLimits.MaxUploadBytes / (1024 * 1024)),
-            MaxDimension: CutoutLimits.MaxDimension));
+        return outcome.IsSuccess
+            ? TypedResults.Ok(outcome.Value)
+            : outcome.ToProblem();
     }
 
     private static async Task<Results<Ok<CutoutResult>, NotFound<string>, ValidationProblem, ProblemHttpResult>> Analyze(
         string jobId,
         CutoutOptions? options,
-        CutoutJobStore store,
-        EnginePicker picker,
-        ProgressChannel progress,
-        ILoggerFactory loggerFactory,
+        CutoutService service,
         CancellationToken cancellationToken)
     {
-        if (store.Find(jobId) is not { } job)
+        var outcome = await service.AnalyzeAsync(jobId, options, cancellationToken).ConfigureAwait(false);
+
+        return outcome.Failure switch
         {
-            return TypedResults.NotFound(NotFoundMessage);
-        }
-
-        var opts = options ?? new CutoutOptions();
-        var engine = picker.Resolve(opts.Engine);
-
-        if (engine is null)
-        {
-            return TypedResults.Problem(
-                "No background-removal engine is available. Check the server configuration.",
-                statusCode: StatusCodes.Status503ServiceUnavailable);
-        }
-
-        if (Validate(opts) is { Count: > 0 } errors)
-        {
-            return TypedResults.ValidationProblem(errors);
-        }
-
-        var logger = CutoutLog.CreateLogger(loggerFactory);
-        var jobGuid = job.Id.Value;
-
-        try
-        {
-            progress.Publish(jobGuid, "inferring", 0.10);
-            var mask = await engine.RemoveAsync(job.Rgba, job.Width, job.Height, cancellationToken).ConfigureAwait(false);
-            progress.Publish(jobGuid, "inferring", 0.55);
-
-            var processed = EdgeProcessor.Apply(mask, job.Width, job.Height, opts);
-            progress.Publish(jobGuid, "trimming", 0.70);
-
-            var finalRgba = processed;
-            var finalWidth = job.Width;
-            var finalHeight = job.Height;
-            int offsetX = 0, offsetY = 0;
-            if (opts.TrimTransparentEdges)
-            {
-                var trim = TrimHelper.Trim(processed, job.Width, job.Height, opts.TrimPaddingPx);
-                if (trim is not null)
-                {
-                    finalRgba = trim.Rgba;
-                    finalWidth = trim.Width;
-                    finalHeight = trim.Height;
-                    offsetX = trim.OffsetX;
-                    offsetY = trim.OffsetY;
-                }
-            }
-
-            progress.Publish(jobGuid, "encoding", 0.85);
-            var png = ImageDecoder.EncodePng(finalRgba, finalWidth, finalHeight, opts.Background);
-            progress.Publish(jobGuid, "done", 1.0);
-
-            // Persist the processed RGBA so subsequent downloads are fast.
-            job.Rgba = finalRgba;
-            job.LastResult = new CutoutResult(
-                job.Id.ToString(),
-                engine.Engine,
-                finalWidth,
-                finalHeight,
-                png.Length,
-                Warning: null,
-                TrimmedWidth: finalWidth,
-                TrimmedHeight: finalHeight,
-                TrimOffsetX: offsetX,
-                TrimOffsetY: offsetY);
-
-            CutoutLog.Cutout(logger, job.Id.ToString(), engine.Engine, finalWidth, finalHeight, png.Length);
-
-            return TypedResults.Ok(job.LastResult);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            CutoutLog.CutoutFailed(logger, job.Id.ToString(), engine.Engine, exception);
-            return TypedResults.Problem(
-                $"Could not remove the background with {engine.Engine}.",
-                statusCode: StatusCodes.Status422UnprocessableEntity);
-        }
-        finally
-        {
-            progress.Complete(jobGuid);
-        }
+            null => TypedResults.Ok(outcome.Value),
+            OutcomeFailure.NotFound => TypedResults.NotFound(outcome.Message),
+            OutcomeFailure.Invalid => TypedResults.ValidationProblem(outcome.ToErrorDictionary()),
+            _ => outcome.ToProblem(),
+        };
     }
 
     private static async Task GetProgress(
@@ -273,83 +140,33 @@ public static class CutoutEndpoints
         }
     }
 
-    private static Results<FileContentHttpResult, NotFound<string>> GetImage(
-        string jobId,
-        CutoutJobStore store)
+    private static Results<FileContentHttpResult, NotFound<string>> GetImage(string jobId, CutoutService service)
     {
-        if (store.Find(jobId) is not { } job)
-        {
-            return TypedResults.NotFound(NotFoundMessage);
-        }
+        var outcome = service.GetImage(jobId);
 
-        var bytes = CutoutExporter.RenderPng(job, new CutoutOptions());
-        var stem = CutoutExporter.Stem(job.OriginalFileName);
-        return TypedResults.File(bytes, PngContentType, CutoutExporter.ClipFileName(stem));
+        return outcome.IsSuccess
+            ? TypedResults.File(outcome.Value.Content, outcome.Value.ContentType, outcome.Value.FileName)
+            : TypedResults.NotFound(outcome.Message);
     }
 
     private static Results<FileContentHttpResult, NotFound<string>, ValidationProblem> GetBatchZip(
         string[] jobs,
         string? template,
-        CutoutJobStore store)
+        CutoutService service)
     {
-        if (jobs.Length > CutoutLimits.MaxBatchFiles)
+        var outcome = service.GetBatchZip(jobs, template);
+
+        return outcome.Failure switch
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                ["jobs"] = [$"A batch download covers at most {CutoutLimits.MaxBatchFiles} images."],
-            });
-        }
-
-        var ready = jobs
-            .Select(store.Find)
-            .OfType<CutoutJob>()
-            .ToArray();
-
-        if (ready.Length == 0)
-        {
-            return TypedResults.NotFound("There is nothing to download. Upload the images again.");
-        }
-
-        // Every download uses its own default options; clients needing per-file knobs re-call /analyze first.
-        var optionsById = ready.ToDictionary(j => j.Id, _ => new CutoutOptions());
-        var pattern = string.IsNullOrWhiteSpace(template) ? null : template;
-
-        return TypedResults.File(
-            CutoutExporter.RenderZip(ready, optionsById, pattern),
-            ZipContentType,
-            "cutouts.zip");
+            null => TypedResults.File(outcome.Value.Content, outcome.Value.ContentType, outcome.Value.FileName),
+            OutcomeFailure.NotFound => TypedResults.NotFound(outcome.Message),
+            _ => TypedResults.ValidationProblem(outcome.ToErrorDictionary()),
+        };
     }
 
-    private static NoContent Delete(string jobId, CutoutJobStore store)
+    private static NoContent Delete(string jobId, CutoutService service)
     {
-        if (store.Find(jobId) is { } job)
-        {
-            store.Remove(job.Id);
-        }
-
+        service.Delete(jobId);
         return TypedResults.NoContent();
-    }
-
-    private const string NotFoundMessage = "That upload has expired or was never received. Upload the image again.";
-
-    private static Dictionary<string, string[]> Validate(CutoutOptions options)
-    {
-        var errors = new Dictionary<string, string[]>();
-
-        Check(nameof(options.AlphaThreshold), options.AlphaThreshold <= 255, "Alpha threshold must be 0-255.");
-        Check(nameof(options.FeatherRadius), options.FeatherRadius is >= 0 and <= 5, "Feather radius must be 0-5 px.");
-        Check(nameof(options.Morphology), options.Morphology is >= -3 and <= 3, "Morphology must be -3 to +3 px.");
-        Check(nameof(options.AlphaMultiplier), options.AlphaMultiplier is > 0 and <= 2, "Alpha multiplier must be 0-2.");
-        Check(nameof(options.Engine), options.Engine is null or (CutoutEngine)0 or (CutoutEngine)1, "Unknown engine.");
-
-        return errors;
-
-        void Check(string field, bool ok, string message)
-        {
-            if (!ok)
-            {
-                errors[field] = [message];
-            }
-        }
     }
 }

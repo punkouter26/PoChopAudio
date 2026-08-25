@@ -1,34 +1,22 @@
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using PoChopAudio.Services.Chop;
+using PoChopAudio.Services.Cutout;
 using PoChopAudio.Shared;
-using PoChopAudio.WinUI.Services;
 
 namespace PoChopAudio.WinUI.ViewModels;
 
-public partial class HealthViewModel : ObservableObject
+/// <summary>
+/// Reports what this build can actually do. There is no server to reach any more, so the checks
+/// are local: which codecs the platform gave us, and whether the ONNX model shipped alongside the
+/// executable. Both follow the optional-capability pattern — absent means degraded, never broken.
+/// </summary>
+public partial class HealthViewModel(
+    ChopService chop,
+    CutoutService cutout,
+    CutoutModelOptions model) : ObservableObject
 {
-    private readonly IApiConfiguration _config;
-    private readonly DiagnosticsApiClient _diagClient;
-    private readonly ChopApiClient _chopClient;
-    private readonly CutoutApiClient _cutoutClient;
-
-    public HealthViewModel(
-        IApiConfiguration config,
-        DiagnosticsApiClient diagClient,
-        ChopApiClient chopClient,
-        CutoutApiClient cutoutClient)
-    {
-        _config = config;
-        _diagClient = diagClient;
-        _chopClient = chopClient;
-        _cutoutClient = cutoutClient;
-
-        _serverUrl = _config.BaseUrl;
-    }
-
-    [ObservableProperty]
-    private string _serverUrl;
-
     [ObservableProperty]
     private bool _isHealthy;
 
@@ -48,40 +36,49 @@ public partial class HealthViewModel : ObservableObject
     private CutoutCapabilities? _cutoutCaps;
 
     [RelayCommand]
-    public async Task RefreshHealthAsync()
+    public Task RefreshHealthAsync()
     {
         IsChecking = true;
-        StatusText = "Connecting to API server…";
 
         try
         {
-            _config.BaseUrl = ServerUrl.Trim();
-            IsHealthy = await _diagClient.CheckHealthAsync();
+            ChopCaps = chop.GetCapabilities();
+            CutoutCaps = cutout.GetCapabilities();
 
-            if (IsHealthy)
-            {
-                StatusText = "Connected & Healthy";
-                DiagnosticsJson = await _diagClient.GetDiagJsonAsync() ?? "{}";
-                ChopCaps = await _chopClient.GetCapabilitiesAsync();
-                CutoutCaps = await _cutoutClient.GetCapabilitiesAsync();
-            }
-            else
-            {
-                StatusText = $"Server at {ServerUrl} is not responding (make sure './SCRIPTS/setup.ps1 -Run' is started).";
-                DiagnosticsJson = string.Empty;
-                ChopCaps = null;
-                CutoutCaps = null;
-            }
+            var modelPresent = File.Exists(model.ModelPath);
+            var engineCount = CutoutCaps.AvailableEngines.Count;
+
+            // Audio always works; cutout needs the model. Neither can be "unreachable" now.
+            IsHealthy = true;
+            StatusText = engineCount > 0
+                ? "Running locally — audio and cutout both ready"
+                : "Running locally — audio ready, cutout unavailable (u2netp.onnx is missing)";
+
+            DiagnosticsJson = JsonSerializer.Serialize(
+                new
+                {
+                    mode = "in-process, no server",
+                    platform = Environment.OSVersion.VersionString,
+                    architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
+                    audioCodecs = ChopCaps.SupportedExtensions,
+                    imageFormats = CutoutCaps.SupportedExtensions,
+                    cutoutEngines = CutoutCaps.AvailableEngines.Select(e => e.ToString()).ToArray(),
+                    modelPath = model.ModelPath,
+                    modelPresent,
+                },
+                new JsonSerializerOptions { WriteIndented = true });
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
             IsHealthy = false;
-            StatusText = $"Error: {ex.Message}";
+            StatusText = $"Error: {exception.Message}";
+            DiagnosticsJson = string.Empty;
         }
         finally
         {
             IsChecking = false;
         }
+
+        return Task.CompletedTask;
     }
 }
-

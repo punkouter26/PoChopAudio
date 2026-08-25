@@ -47,4 +47,12 @@ public partial class CutoutFileItem : ObservableObject
 
     public bool IsReady => Status == ItemProcessingStatus.Ready;
     public string DetailsText => $"{Width} × {Height} px · {Bytes:N0} bytes";
+
+    partial void OnWidthChanged(int value) => OnPropertyChanged(nameof(DetailsText));
+
+    partial void OnHeightChanged(int value) => OnPropertyChanged(nameof(DetailsText));
+
+    partial void OnBytesChanged(long value) => OnPropertyChanged(nameof(DetailsText));
+
+    partial void OnStatusChanged(ItemProcessingStatus value) => OnPropertyChanged(nameof(IsReady));
 }

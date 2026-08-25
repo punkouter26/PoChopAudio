@@ -1,5 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
+using PoChopAudio.Services.Chop;
+using PoChopAudio.Services.Cutout;
+using PoChopAudio.Services.Cutout.Engines;
+using PoChopAudio.Shared;
 using PoChopAudio.WinUI.Services;
 using PoChopAudio.WinUI.ViewModels;
 
@@ -28,23 +32,30 @@ public partial class App : Application
     {
         var services = new ServiceCollection();
 
-        // API & Core Services
-        services.AddSingleton<IApiConfiguration, ApiConfiguration>();
-        services.AddSingleton<ChopApiClient>();
-        services.AddSingleton<CutoutApiClient>();
-        services.AddSingleton<DiagnosticsApiClient>();
+        services.AddLogging();
+
+        // The shared engine room, registered exactly as the API registers it. Running the same
+        // ChopService and CutoutService in-process is what makes this app work with no server.
+        services.AddSingleton<ChopJobStore>();
+        services.AddSingleton<ChopService>();
+
+        services.AddSingleton<CutoutJobStore>();
+        services.AddSingleton(new CutoutModelOptions(
+            Path.Combine(AppContext.BaseDirectory, "Content", "Models", "u2netp.onnx")));
+        services.AddSingleton<IBackgroundRemover, OnnxU2NetRemover>();
+        services.AddSingleton<EnginePicker>();
+        services.AddSingleton<ProgressChannel>();
+        services.AddSingleton<CutoutService>();
 
         // Hardware / Media Services
         services.AddSingleton<AudioRecorderService>();
         services.AddSingleton<AudioPlayerService>();
         services.AddSingleton<CameraService>();
-        services.AddSingleton<LocalCutoutService>();
         services.AddSingleton<ExportService>();
 
         // ViewModels
         services.AddTransient<ChopViewModel>();
         services.AddTransient<CutoutViewModel>();
-        services.AddTransient<HeadShotsViewModel>();
         services.AddTransient<HealthViewModel>();
 
         _serviceProvider = services.BuildServiceProvider();

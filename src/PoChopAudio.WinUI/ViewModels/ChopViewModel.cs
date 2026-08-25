@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
+using PoChopAudio.Services.Chop;
 using PoChopAudio.Shared;
 using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Models;
@@ -13,15 +14,15 @@ namespace PoChopAudio.WinUI.ViewModels;
 
 public partial class ChopViewModel : ObservableObject, IDisposable
 {
-    private readonly ChopApiClient _apiClient;
+    private readonly ChopService _chop;
     private readonly AudioRecorderService _recorder;
     private readonly AudioPlayerService _player;
     private readonly Debouncer _debouncer = new(TimeSpan.FromMilliseconds(350));
     private CancellationTokenSource _cts = new();
 
-    public ChopViewModel(ChopApiClient apiClient, AudioRecorderService recorder, AudioPlayerService player)
+    public ChopViewModel(ChopService chop, AudioRecorderService recorder, AudioPlayerService player)
     {
-        _apiClient = apiClient;
+        _chop = chop;
         _recorder = recorder;
         _player = player;
 
@@ -127,9 +128,10 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     public int AttentionCount => Files.Count(f => f.NeedsAttention);
     public int UntunedCount => Files.Count(f => !f.UsesOwnSettings && f.IsReady);
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
-        Capabilities = await _apiClient.GetCapabilitiesAsync();
+        Capabilities = _chop.GetCapabilities();
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -214,7 +216,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         try
         {
             item.Status = ItemProcessingStatus.Uploading;
-            var uploadResult = await _apiClient.UploadAsync(stream, fileName, _cts.Token);
+            var uploadResult = (await _chop.UploadAsync(stream, fileName, stream.Length, _cts.Token)).OrThrow();
 
             item.JobId = uploadResult.JobId;
             item.DurationSeconds = uploadResult.DurationSeconds;
@@ -225,7 +227,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
             item.Waveform = uploadResult.Waveform;
 
             item.Status = ItemProcessingStatus.Analyzing;
-            var analysis = await _apiClient.AnalyzeAsync(item.JobId, item.Settings.ToOptions(), _cts.Token);
+            var analysis = await Task.Run(
+                () => _chop.Analyze(item.JobId, item.Settings.ToOptions()).OrThrow(), _cts.Token);
 
             item.DetectedThresholdDb = analysis.ThresholdDb;
             item.Warning = analysis.Warning;
@@ -341,7 +344,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
 
         try
         {
-            var result = await _apiClient.AnalyzeAsync(item.JobId, item.Settings.ToOptions(), _cts.Token);
+            var result = await Task.Run(
+                () => _chop.Analyze(item.JobId, item.Settings.ToOptions()).OrThrow(), _cts.Token);
             item.DetectedThresholdDb = result.ThresholdDb;
             item.Warning = result.Warning;
             item.Segments = new ObservableCollection<ChopSegment>(result.Segments);
@@ -375,7 +379,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
             byte[] wavBytes;
             if (segment is not null)
             {
-                wavBytes = await _apiClient.GetClipAudioAsync(item.JobId, segment.Index, ExportKnobs.ToOptions(), _cts.Token);
+                wavBytes = await Task.Run(
+                    () => _chop.GetClip(item.JobId, segment.Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
             }
             else
             {
@@ -386,7 +391,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
                 }
                 else if (item.Segments.Count > 0)
                 {
-                    wavBytes = await _apiClient.GetClipAudioAsync(item.JobId, item.Segments[0].Index, ExportKnobs.ToOptions(), _cts.Token);
+                    wavBytes = await Task.Run(
+                        () => _chop.GetClip(item.JobId, item.Segments[0].Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
                 }
                 else
                 {
@@ -433,8 +439,9 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         try
         {
             var jobIds = ready.Select(f => f.JobId).ToList();
-            await using var stream = await _apiClient.GetBatchZipStreamAsync(jobIds, ExportKnobs.ToOptions(), _cts.Token);
-            await ExportService.SaveStreamToFileAsync(stream, savePath, _cts.Token);
+            var zip = await Task.Run(
+                () => _chop.GetBatchZip(jobIds, ExportKnobs.ToOptions()).OrThrow(), _cts.Token);
+            await ExportService.SaveBytesToFileAsync(zip.Content, savePath, _cts.Token);
             StatusMessage = $"Saved batch ZIP to {Path.GetFileName(savePath)}";
         }
         catch (Exception ex)
@@ -470,7 +477,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
                     var seg = fileItem.Segments[s];
                     StatusMessage = $"Saving {stem}_{seg.Index}.wav ({totalSaved + 1} of {TotalClips})…";
 
-                    var clipBytes = await _apiClient.GetClipAudioAsync(fileItem.JobId, seg.Index, ExportKnobs.ToOptions(), _cts.Token);
+                    var clipBytes = await Task.Run(
+                        () => _chop.GetClip(fileItem.JobId, seg.Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
                     var targetFile = Path.Combine(folderPath, $"{stem}_{seg.Index}.wav");
                     await ExportService.SaveBytesToFileAsync(clipBytes, targetFile, _cts.Token);
                     totalSaved++;
@@ -498,7 +506,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
 
         try
         {
-            var bytes = await _apiClient.GetClipAudioAsync(args.Item.JobId, args.Segment.Index, ExportKnobs.ToOptions(), _cts.Token);
+            var bytes = await Task.Run(
+                () => _chop.GetClip(args.Item.JobId, args.Segment.Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
             await ExportService.SaveBytesToFileAsync(bytes, savePath, _cts.Token);
         }
         catch (Exception ex)
@@ -513,7 +522,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         _player.Stop();
         foreach (var file in Files)
         {
-            _ = _apiClient.DeleteJobAsync(file.JobId);
+            _chop.Delete(file.JobId);
         }
         Files.Clear();
         ErrorMessage = null;

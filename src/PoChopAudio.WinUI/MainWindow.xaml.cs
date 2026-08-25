@@ -13,8 +13,9 @@ public sealed partial class MainWindow : Window
         WindowHelper.TrySetMicaBackdrop(this);
         WindowHelper.SetWindowSize(this, 1280, 840);
 
-        NavView.SelectedItem = NavView.MenuItems[0];
-        NavigateTo("Chop");
+        // Open on Cutout Studio. ChopPage is still excluded from compilation, so selecting the
+        // first item landed the user on the Health fallback instead of anything they asked for.
+        SelectNavItem("Cutout");
     }
 
     private void OnNavItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
@@ -23,6 +24,20 @@ public sealed partial class MainWindow : Window
         {
             NavigateTo(tag);
         }
+    }
+
+    private void SelectNavItem(string tag)
+    {
+        var item = NavView.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(i => (i.Tag as string) == tag);
+
+        if (item is not null)
+        {
+            NavView.SelectedItem = item;
+        }
+
+        NavigateTo(tag);
     }
 
     private void NavigateTo(string tag)

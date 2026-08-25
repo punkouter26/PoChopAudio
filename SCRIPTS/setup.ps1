@@ -36,12 +36,31 @@ try {
         # static web assets (index.html, css/, _framework/) into the API bin, so the
         # Blazor host serves an unfilled placeholder page. `dotnet publish` runs the
         # full pipeline that materialises them.
-        # Publish into a clean directory. dotnet publish overwrites but never deletes, and the
-        # Blazor assemblies are fingerprinted, so every rebuild used to leave another
-        # PoChopAudio.Client.<hash>.wasm behind. Harmless until index.html and _framework drift
-        # apart, at which point you are debugging a stale bundle that is still sitting on disk.
+        # dotnet publish overwrites but never deletes, and Blazor assemblies are fingerprinted, so
+        # every rebuild leaves another PoChopAudio.Client.<hash>.wasm behind. Harmless until
+        # index.html and _framework drift apart and you are debugging a stale bundle.
+        #
+        # Clearing it needs care. A previous instance running out of $PublishDir holds its DLLs
+        # open, and a plain -Recurse -Force deletes everything it CAN before throwing on the first
+        # locked file — which took out wwwroot and left a live server answering 404 for every
+        # static asset. So: stop anything running from here first, and if the directory still will
+        # not go, leave it entirely rather than half-deleting it.
         if (Test-Path $PublishDir) {
-            Remove-Item -Path $PublishDir -Recurse -Force
+            Get-Process -Name 'PoChopAudio.API' -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -and $_.Path.StartsWith($PublishDir, [StringComparison]::OrdinalIgnoreCase) } |
+                ForEach-Object {
+                    Write-Host "Stopping the instance already running from $PublishDir…" -ForegroundColor Yellow
+                    try { $_.Kill(); $_.WaitForExit(10000) } catch { }
+                }
+
+            try {
+                Remove-Item -Path $PublishDir -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+                # Publishing over the top still produces a correct app; only stale fingerprinted
+                # bundles linger, which is the minor annoyance this block exists to tidy.
+                Write-Warning "Could not clear $PublishDir ($($_.Exception.Message)). Publishing over it instead."
+            }
         }
 
         Write-Host "Publishing to $PublishDir…" -ForegroundColor Cyan

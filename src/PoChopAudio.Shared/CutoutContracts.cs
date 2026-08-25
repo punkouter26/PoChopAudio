@@ -40,29 +40,24 @@ public sealed record CutoutOptions
     /// <summary>Final alpha multiplier on the mask.</summary>
     public double AlphaMultiplier { get; init; } = CutoutLimits.DefaultAlphaMultiplier;
 
-    /// <summary>Optional solid background colour to fill behind the cutout. Null = transparent.</summary>
-    public BackgroundColor? Background { get; init; }
-
-    /// <summary>Crops the output to the alpha bounding box (the subject's tightest rectangle).</summary>
-    public bool TrimTransparentEdges { get; init; }
-
-    /// <summary>
-    /// Crops to the head alone, discarding neck and body. Takes precedence over
-    /// <see cref="TrimTransparentEdges"/>, whose box always includes the shoulders because the
-    /// saliency model marks the whole person.
-    /// </summary>
-    public bool HeadOnly { get; init; }
-
     /// <summary>
     /// Optional padding (in pixels) added to the trimmed bounding box on every side. 0 = tight crop.
     /// </summary>
     public int TrimPaddingPx { get; init; } = 16;
-}
 
-/// <summary>24-bit sRGB colour, used for the optional background fill.</summary>
-public readonly record struct BackgroundColor(byte R, byte G, byte B)
-{
-    public string ToHex() => $"#{R:X2}{G:X2}{B:X2}";
+    /// <summary>
+    /// Snaps every surviving pixel to fully opaque instead of keeping the model's soft alpha.
+    /// This is what removes the wispy halo around hair: thresholding alone deletes the faint
+    /// pixels but leaves everything above the cut translucent, which reads as a glow.
+    /// </summary>
+    public bool HardEdge { get; init; } = true;
+
+    /// <summary>
+    /// Moves the head/neck cut up (negative) or down (positive), as a percentage of the subject's
+    /// height. The neck is found automatically; this is the manual override for when a collar or a
+    /// beard makes the automatic choice land wrong.
+    /// </summary>
+    public int HeadCutBiasPercent { get; init; }
 }
 
 /// <summary>Result of decoding an image upload: enough to draw a preview and decide settings.</summary>

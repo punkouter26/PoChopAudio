@@ -11,30 +11,23 @@ using Xunit;
 namespace PoChopAudio.Integration;
 
 /// <summary>
-/// Exercises the cutout pipeline end to end: upload, engine, edge processing, PNG out. The
-/// OnnxU2Net engine only runs when its model file is present, so the inference test skips itself
-/// on a machine that has not fetched the model.
-///
-/// These ran over HTTP until the API was removed. The service is what the desktop app calls, so
-/// this is now testing the same path the app takes rather than one layer above it.
+/// Exercises the cutout pipeline end to end: decode, engine, edge processing, head crop, PNG out.
+/// The OnnxU2Net engine only runs when its model file is present, so the inference test skips
+/// itself on a machine that has not fetched the model.
 /// </summary>
-public sealed class CutoutPipelineTests : IDisposable
+public sealed class CutoutPipelineTests
 {
-    private readonly CutoutJobStore _store = new();
     private readonly CutoutService _cutout;
     private readonly string _modelPath;
 
     public CutoutPipelineTests()
     {
         _modelPath = Path.Combine(AppContext.BaseDirectory, "Content", "Models", "u2netp.onnx");
-        var options = new CutoutModelOptions(_modelPath);
-        var remover = new OnnxU2NetRemover(options, NullLogger<OnnxU2NetRemover>.Instance);
+        var remover = new OnnxU2NetRemover(new CutoutModelOptions(_modelPath), NullLogger<OnnxU2NetRemover>.Instance);
         var picker = new EnginePicker([remover], NullLogger<EnginePicker>.Instance);
 
-        _cutout = new CutoutService(_store, picker, new ProgressChannel(), NullLoggerFactory.Instance);
+        _cutout = new CutoutService(picker, NullLoggerFactory.Instance);
     }
-
-    public void Dispose() => _store.Dispose();
 
     [Fact]
     public void CapabilitiesReportTheFormatsThisBuildAccepts()
@@ -46,53 +39,51 @@ public sealed class CutoutPipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task UploadRejectsOversizedFiles()
+    public async Task RejectsAnOversizedPhoto()
     {
         using var source = new MemoryStream(new byte[16]);
-        var outcome = await _cutout.UploadAsync(source, "huge.jpg", CutoutLimits.MaxUploadBytes + 1);
+        var outcome = await _cutout.CutOutAsync(source, "huge.jpg", CutoutLimits.MaxUploadBytes + 1);
 
         Assert.False(outcome.IsSuccess);
         Assert.Equal(OutcomeFailure.TooLarge, outcome.Failure);
     }
 
     [Fact]
-    public async Task UploadRejectsUnsupportedExtension()
+    public async Task RejectsAnUnsupportedExtension()
     {
         using var source = new MemoryStream(new byte[16]);
-        var outcome = await _cutout.UploadAsync(source, "file.gif", 16);
+        var outcome = await _cutout.CutOutAsync(source, "file.gif", 16);
 
         Assert.False(outcome.IsSuccess);
         Assert.Equal(OutcomeFailure.UnsupportedMedia, outcome.Failure);
     }
 
     [Fact]
-    public async Task UploadRejectsAnEmptyPayload()
+    public async Task RejectsAnEmptyPayload()
     {
         using var source = new MemoryStream();
-        var outcome = await _cutout.UploadAsync(source, "empty.png", 0);
+        var outcome = await _cutout.CutOutAsync(source, "empty.png", 0);
 
         Assert.False(outcome.IsSuccess);
         Assert.Equal(OutcomeFailure.Empty, outcome.Failure);
     }
 
     [Fact]
-    public async Task UploadAndImageRoundTripsRgbaAsPng()
+    public async Task RejectsOutOfRangeOptions()
     {
         var png = BuildTinyPng(64, 64);
         using var source = new MemoryStream(png);
 
-        var upload = await _cutout.UploadAsync(source, "test.png", png.Length);
-        Assert.True(upload.IsSuccess, upload.Message);
-        Assert.Equal(64, upload.Value.Width);
-        Assert.Equal(64, upload.Value.Height);
+        var outcome = await _cutout.CutOutAsync(
+            source, "test.png", png.Length, new CutoutOptions { FeatherRadius = 99 });
 
-        var image = _cutout.GetImage(upload.Value.JobId);
-        Assert.True(image.IsSuccess, image.Message);
-        AssertIsPng(image.Value.Content);
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(OutcomeFailure.Invalid, outcome.Failure);
+        Assert.True(outcome.Errors.ContainsKey(nameof(CutoutOptions.FeatherRadius)));
     }
 
     [Fact]
-    public async Task RealOnnxPathProducesNonEmptyPng()
+    public async Task RealOnnxPathProducesACroppedPng()
     {
         if (!File.Exists(_modelPath))
         {
@@ -100,23 +91,36 @@ public sealed class CutoutPipelineTests : IDisposable
             return;
         }
 
+        Assert.True(_cutout.IsAvailable);
+
         var png = BuildTinyPng(64, 64);
         using var source = new MemoryStream(png);
 
-        var upload = await _cutout.UploadAsync(source, "test.png", png.Length);
-        Assert.True(upload.IsSuccess, upload.Message);
+        var outcome = await _cutout.CutOutAsync(source, "test.png", png.Length);
+        Assert.True(outcome.IsSuccess, outcome.Message);
 
-        var analyze = await _cutout.AnalyzeAsync(
-            upload.Value.JobId,
-            new CutoutOptions { Engine = CutoutEngine.OnnxU2Net });
+        var photo = outcome.Value;
+        Assert.Equal(CutoutEngine.OnnxU2Net, photo.Engine);
 
-        Assert.True(analyze.IsSuccess, analyze.Message);
-        Assert.Equal(CutoutEngine.OnnxU2Net, analyze.Value.Engine);
+        // The head crop must never grow the image beyond what came in.
+        Assert.InRange(photo.Width, 1, 64);
+        Assert.InRange(photo.Height, 1, 64);
+        AssertIsPng(photo.Png);
+    }
 
-        var image = _cutout.GetImage(upload.Value.JobId);
-        Assert.True(image.IsSuccess, image.Message);
-        Assert.Equal(ExportedFile.Png, image.Value.ContentType);
-        AssertIsPng(image.Value.Content);
+    [Fact]
+    public void AMissingModelLeavesTheEngineUnavailableRatherThanThrowing()
+    {
+        var absent = new OnnxU2NetRemover(
+            new CutoutModelOptions(Path.Combine(AppContext.BaseDirectory, "no-such-model.onnx")),
+            NullLogger<OnnxU2NetRemover>.Instance);
+
+        var service = new CutoutService(
+            new EnginePicker([absent], NullLogger<EnginePicker>.Instance),
+            NullLoggerFactory.Instance);
+
+        Assert.False(service.IsAvailable);
+        Assert.Empty(service.GetCapabilities().AvailableEngines);
     }
 
     private static void AssertIsPng(byte[] bytes)

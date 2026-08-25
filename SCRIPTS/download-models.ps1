@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$TargetDir = Join-Path $ProjectRoot 'src\PoChopAudio.API\Content\Models'
+$TargetDir = Join-Path $ProjectRoot 'src\PoChopAudio.WinUI\Content\Models'
 $Target = Join-Path $TargetDir 'u2netp.onnx'
 
 if (-not $Force -and (Test-Path -LiteralPath $Target) -and (Get-Item $Target).Length -gt 1MB) {

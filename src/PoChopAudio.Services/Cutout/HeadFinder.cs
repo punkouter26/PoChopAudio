@@ -31,7 +31,14 @@ public static class HeadFinder
     /// Returns the head rectangle, padded and clamped to the image. Falls back to the full subject
     /// box when no shoulder line is detectable — a head-and-nothing-else photo is the common case.
     /// </summary>
-    public static HeadBounds Find(byte[] rgba, int width, int height, int paddingPx)
+    public static HeadBounds Find(byte[] rgba, int width, int height, int paddingPx) =>
+        Find(rgba, width, height, paddingPx, cutBiasPercent: 0);
+
+    /// <param name="cutBiasPercent">
+    /// Shifts the neck cut up (negative) or down (positive) by this percentage of the subject's
+    /// height. Zero uses the detected neck as-is.
+    /// </param>
+    public static HeadBounds Find(byte[] rgba, int width, int height, int paddingPx, int cutBiasPercent)
     {
         ArgumentNullException.ThrowIfNull(rgba);
 
@@ -74,6 +81,12 @@ public static class HeadFinder
         }
 
         var cut = NeckRow(widths, top, bottom);
+
+        if (cutBiasPercent != 0)
+        {
+            var shift = (int)((bottom - top + 1) * (cutBiasPercent / 100.0));
+            cut = Math.Clamp(cut + shift, top, bottom);
+        }
 
         // Horizontal extent is measured across the head rows only. Using the whole subject would
         // drag the box out to shoulder width and defeat the point.

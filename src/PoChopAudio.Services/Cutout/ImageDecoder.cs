@@ -130,21 +130,12 @@ public static class ImageDecoder
         return bytes.AsSpan(0, eoi + 2).ToArray();
     }
 
-    /// <summary>Re-encodes RGBA bytes as PNG, with optional background fill, for download.</summary>
-    public static byte[] EncodePng(
-        byte[] rgba,
-        int width,
-        int height,
-        BackgroundColor? background)
+    /// <summary>Re-encodes RGBA bytes as a transparent PNG.</summary>
+    public static byte[] EncodePng(byte[] rgba, int width, int height)
     {
         ArgumentNullException.ThrowIfNull(rgba);
 
         using var image = Image.LoadPixelData<Rgba32>(rgba, width, height);
-
-        if (background is { } bg)
-        {
-            image.Mutate(c => c.BackgroundColor(new Color(new Rgb24(bg.R, bg.G, bg.B))));
-        }
 
         using var output = new MemoryStream();
         var encoder = new PngEncoder { CompressionLevel = PngCompressionLevel.Level6 };

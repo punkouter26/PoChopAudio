@@ -42,11 +42,9 @@ public sealed partial class MainWindow : Window
 
     private void NavigateTo(string tag)
     {
-        Type pageType = tag switch
-        {
-            "Cutout" => typeof(CutoutPage),
-            _ => typeof(HealthPage)
-        };
+        // Cutout Studio is the only page that exists; ChopPage is still excluded from the build.
+        Type pageType = typeof(CutoutPage);
+        _ = tag;
 
         if (ContentFrame.CurrentSourcePageType != pageType)
         {

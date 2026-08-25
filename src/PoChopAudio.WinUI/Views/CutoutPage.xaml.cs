@@ -35,8 +35,6 @@ public sealed partial class CutoutPage : Page
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        await ViewModel.InitializeAsync();
-
         // Bring the viewfinder up straight away so TAKE PHOTO is the only thing to click.
         await ViewModel.StartCameraAsync();
     }

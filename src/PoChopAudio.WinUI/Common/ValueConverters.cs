@@ -49,48 +49,6 @@ public sealed class NullToVisibilityConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
-public sealed class IntToVisibilityConverter : IValueConverter
-{
-    public bool Invert { get; set; }
 
-    public object Convert(object value, Type targetType, object parameter, string language)
-    {
-        var hasCount = value is int count && count > 0;
-        if (Invert) hasCount = !hasCount;
-        return hasCount ? Visibility.Visible : Visibility.Collapsed;
-    }
 
-    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
-}
-
-public sealed class SecondsToTimeConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, string language)
-    {
-        if (value is double sec)
-        {
-            var ts = TimeSpan.FromSeconds(sec);
-            return ts.TotalMinutes >= 1
-                ? $"{ts.Minutes}:{ts.Seconds:D2}.{ts.Milliseconds / 100:D1}"
-                : $"{ts.Seconds}.{ts.Milliseconds / 100:D1}s";
-        }
-        return "0.0s";
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
-}
-
-public sealed class DbFormatConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, string language)
-    {
-        if (value is double db)
-        {
-            return $"{db:F1} dB";
-        }
-        return "- dB";
-    }
-
-    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
-}
 

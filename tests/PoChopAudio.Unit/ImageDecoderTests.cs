@@ -105,7 +105,7 @@ public sealed class ImageDecoderTests
             rgba[i + 3] = 255;
         }
 
-        var png = ImageDecoder.EncodePng(rgba, 4, 4, background: null);
+        var png = ImageDecoder.EncodePng(rgba, 4, 4);
 
         // PNG signature is 8 bytes: 89 50 4E 47 0D 0A 1A 0A.
         Assert.True(png.Length > 8);

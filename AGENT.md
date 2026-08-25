@@ -5,11 +5,19 @@ separated by pauses and it returns five clips each, trimmed to the start and end
 
 Governance lives in [NET_RULES.md](NET_RULES.md); this file records what was actually built.
 
+> **PoChopAudio is a WinUI 3 desktop app.** The ASP.NET Minimal API (`PoChopAudio.API`) and the
+> Blazor WASM client (`PoChopAudio.Client`) were deleted: everything now runs in-process on the
+> user's machine and nothing is uploaded. Sections below that describe HTTP endpoints record how
+> the feature *was* reached, not how it is reached today — the logic behind them survived the move
+> into `PoChopAudio.Services` unchanged, which is why they are still worth reading.
+
 ## Shape
 
 ```
-src/PoChopAudio.Services/     Host-agnostic engine room. No ASP.NET, no UI. Referenced by
-                              the API and (in progress) the WinUI desktop client.
+src/PoChopAudio.Services/     Host-agnostic engine room. No UI, no hosting framework.
+  Outcome.cs                  Value-or-domain-reason return type used by both services
+  ExportedFile.cs             Bytes + filename + content type, ready to save
+  Chop/ChopService            The whole chop feature: upload, analyze, clip, zip, delete
   Chop/AudioDecoder           Decode to canonical WAV; MediaFoundation codecs are Windows-only
   Chop/SegmentDetector        The split algorithm (gate sweep, widest agreeing band)
   Chop/SilenceTrimmer         Leading/trailing silence trim, in frames
@@ -17,50 +25,25 @@ src/PoChopAudio.Services/     Host-agnostic engine room. No ASP.NET, no UI. Refe
   Chop/LoudnessMeter          ITU-R BS.1770-4 K-weighting + gated integrated loudness
   Chop/ClipProcessor          Export maths: gain decision and fade curve, no I/O
   Chop/ChopJobStore           Temp-dir job scratch space, 2 h TTL
+  Cutout/CutoutService        CutOutAsync: decode, mask, clean, head-crop, encode — one call
   Cutout/ImageDecoder         JPEG/PNG/WebP decode, EXIF auto-rotate, MP.jpg trailer strip
   Cutout/EdgeProcessor        Mask threshold, morphology, feather, alpha multiplier
+  Cutout/HeadFinder           Crops to the head alone: peak, neck, shoulder flare
   Cutout/Engines/OnnxU2NetRemover  u2netp ONNX model, in-process
-  Cutout/CutoutModelOptions   Injected path to u2netp.onnx — the reason the engine needs no host
-  Cutout/CutoutJobStore       Same temp-dir / 2 h TTL pattern as ChopJobStore
-src/PoChopAudio.API/          Minimal API + BFF host; serves the Blazor client
-  Features/Chop/              HTTP surface over Services.Chop
-    ChopEndpoints             /api/chop/{upload, capabilities, analyze, clips, clips.zip}
-    ChopExportQuery           Binds the export knobs off the download URL's query string
-    ChopJobCleanup            BackgroundService sweeping expired jobs (host infrastructure)
-  Features/Cutout/            HTTP surface over Services.Cutout
-    CutoutEndpoints           /api/cutout/{upload, capabilities, analyze, image, images.zip}
-                              plus /model and /progress, which exist only for the browser client
-    CutoutJobCleanup          BackgroundService sweeping expired jobs (host infrastructure)
-  Features/Diagnostics/       /health and /diag
-  Features/Archive/           Batch metadata persisted to Azurite (best-effort, non-blocking)
-    AzuriteBlobStore           Thin wrapper over the blob container; swallows errors when
-                                Azurite is unreachable so the in-memory job store keeps working
-    JobArchive                 Batch JSON at batches/{id}.json + a capped recency index
-    ArchiveEndpoints            /api/archive/batches {GET list, GET one, POST save, DELETE}
-src/PoChopAudio.Client/       Blazor WASM UI
-  Components/ChopFileCard.razor   One recording
-  Components/ChopKnobs.razor      The five chop settings
-  Components/ExportKnobs.razor    Normalize / target / ceiling / fades, batch-wide
-  Components/RecorderPanel.razor  Mic capture: name field, count-in, level meter, live waveform
-  Services/AudioRecorder.cs       Interop wrapper over recorder.js
-  wwwroot/js/recorder.js          getUserMedia + AudioWorklet capture, writes its own WAV
-  wwwroot/js/recorder-worklet.js  Audio-thread capture, batched into ~85 ms blocks
-  Components/CutoutFileCard.razor One image
-  Components/CutoutKnobs.razor    Alpha threshold / feather / morphology / multiplier
-  Pages/HeadShots.razor      Camera head shots — capture, cutout and ZIP, all in the browser
-  Services/CameraCapture.cs  Interop wrapper over camera.js
-  wwwroot/js/camera.js       getUserMedia video, frame grab, alpha-bbox crop, store-only ZIP
-  Pages/Home.razor           The chop page
-  Pages/Cutout.razor         The cutout page (per-image engine picker, checkerboard preview)
-  Services/CutoutClient.cs   Typed HttpClient for /api/cutout
-  Services/BrowserOnnxRemover Client-side ONNX runtime (when no server engine is available)
-  wwwroot/js/cutout.js       onnxruntime-web + u2netp in the browser via JS interop
-src/PoChopAudio.WinUI/        WinUI 3 desktop client (unpackaged, self-contained WinAppSDK)
-src/PoChopAudio.Shared/       Contracts shared by all: JobId, ChopLimits, ChopOptions, results
-                              plus CutoutLimits, CutoutEngine, IBackgroundRemover, CutoutOptions
-tests/PoChopAudio.Unit/       SegmentDetector, ClipExporter, ImageDecoder, EdgeProcessor, CutoutExporter
-tests/PoChopAudio.Integration/  Full HTTP pipeline with WebApplicationFactory<Program>
-output/                       Clips produced from the Matt_*.m4a recordings
+  Cutout/CutoutModelOptions   Injected path to u2netp.onnx — why the engine needs no host
+src/PoChopAudio.Shared/       Contracts: JobId, ChopLimits, ChopOptions, ExportOptions, results,
+                              CutoutLimits, CutoutEngine, IBackgroundRemover, CutoutOptions
+src/PoChopAudio.WinUI/        The app. Unpackaged, self-contained Windows App SDK.
+  App.xaml.cs                 DI registration — the same singletons the API used to register
+  MainWindow.xaml             NavigationView shell: Chop Audio (excluded from build), Cutout Studio
+  Views/CutoutPage            Camera viewfinder, TAKE PHOTO, and the cut-out results below it
+  Services/CameraService      MediaFrameReader viewfinder + still capture
+  Services/AudioRecorderService, AudioPlayerService, ExportService
+  Services/ServiceOutcomeExtensions  .OrThrow(), the Outcome-to-exception seam
+  Controls/WrapPanel          WinUI 3 ships none; the knob row needed one
+  Content/Models/u2netp.onnx  Shipped with the app (optional; absent = cutout unavailable)
+tests/PoChopAudio.Unit/       Pure logic: detector, exporters, decoder, edge processor
+tests/PoChopAudio.Integration/  Multi-component behaviour against the real services
 ```
 
 ## How a file becomes clips
@@ -275,26 +258,26 @@ The UI then offers exactly that picker.
 with no host dependency: the API resolves the path under its content root, and a desktop host
 resolves it next to the executable. A missing file still leaves the engine simply unavailable.
 
-The pipeline is decode-once, process-once, encode-once:
+`CutoutService.CutOutAsync` does the whole thing in one call:
 
-1. **Upload** — `POST /api/cutout/upload`. The image is decoded once into raw RGBA bytes
-   (`ImageSharp`, EXIF auto-rotate, Pixel Motion Photo `.MP.jpg` trailer stripped). The original
-   file is discarded; the working copy lives in `%TEMP%/PoChopAudioCutout` and is wiped on
-   shutdown.
-2. **Analyze** — `POST /api/cutout/{jobId}/analyze`. The picker selects an engine; the engine
-   returns the alpha mask as RGBA bytes. `EdgeProcessor` applies the four user knobs (threshold,
-   morphology, feather, multiplier) and the background fill, then `ImageDecoder.EncodePng` writes
-   the final PNG. The processed RGBA replaces the originals in the job so subsequent downloads
-   are fast.
-3. **Download** — `GET /api/cutout/{jobId}/image` for one image, `GET /api/cutout/images.zip?jobs=…`
-   for a batch. ZIP filenames are flat (`<stem>_cutout.png`, with `(N)` suffix for collisions)
-   so the archive reads like the output folder.
+1. **Decode** — raw RGBA via `ImageSharp`, EXIF auto-rotated, Pixel Motion Photo `.MP.jpg` trailer
+   stripped.
+2. **Mask** — the picker selects an engine; the engine returns the alpha mask as RGBA bytes.
+3. **Clean** — `EdgeProcessor` applies threshold, morphology, feather and the alpha multiplier, in
+   that order. Defaults are tuned for head shots: threshold 160 kills the soft halo u2netp leaves,
+   a 1 px erode pulls the edge inside the fringe, a 1 px feather stops it looking jagged, and the
+   1.6x multiplier saturates what survives so the head is solid rather than translucent.
+4. **Crop** — `HeadFinder` cuts at the neck, so the result is the head and not the body.
+5. **Encode** — `ImageDecoder.EncodePng` writes a transparent PNG.
 
-Per-file knobs mirror the chopper: alpha threshold 0-255, feather 0-5 px, morphology -3 to +3 px,
-optional background fill. Defaults are tuned for portraits; an image that needs no tweak usually
-ships with the defaults.
+This used to be four HTTP calls with a job store holding decoded pixels between them. That shape
+existed because HTTP is stateless and a browser needed a handle to refer back to; in-process the
+caller already holds the bytes, so `CutoutJobStore`, its 2 h expiry and its temp directory were
+removed along with `CutoutExporter` (ZIP and filename templates) and `TrimHelper` (the
+whole-subject crop, superseded by the head crop). `ProgressChannel` went too — it published
+progress that only the deleted SSE endpoint ever subscribed to.
 
-The model file (`u2netp.onnx`, ~4.4 MB) lives in `src/PoChopAudio.API/Content/Models/`. The
+The model file (`u2netp.onnx`, ~4.4 MB) lives in `src/PoChopAudio.WinUI/Content/Models/`. The
 `<None Include="Content/Models/u2netp.onnx" Condition="Exists(...)">` clause means a fresh clone
 builds without it — the API then reports `OnnxU2Net` as unavailable and the UI hides it.
 `SCRIPTS/download-models.ps1` fetches the model from the public U-2-Net release into the right
@@ -309,13 +292,16 @@ host at `_content/cutout-models/u2netp.onnx`.
 - **No auth.** Nothing is protected, so there is no BFF cookie flow, no Entra ID, no
   `FakeAuthHandler`. Add `Features/Auth` and a `FallbackPolicy` if this is ever hosted for more than
   one person — the NET_RULES rules for that path still apply.
-- **No primary database.** A job is still a temp directory that resets on restart. Azurite
-  (`Features/Archive`) only holds a lightweight, best-effort recency index of past batches
-  (used by the Cutout page's "Recent batches" list) — never the audio or image bytes
-  themselves, which are gone once the temp directory is wiped. It is not required to run
-  the app: every write is caught and logged, so a missing Azurite degrades archive listing,
-  not the chop/cutout pipelines.
+- **No server and no web client.** The API and the Blazor client were deleted once the app became
+  desktop-only. Do not reintroduce them: the logic they wrapped lives in `PoChopAudio.Services`,
+  which both of them referenced anyway, and the app calls it in-process. The `Outcome<T>` return
+  type is the seam that used to be HTTP status codes.
+- **No primary database, and no Azurite.** A job is still a temp directory that resets on restart.
+  The best-effort batch recency index went with the API; a desktop app has no Azurite to reach and
+  the index was never load-bearing.
 - **No paid AI services.** Both engines are free (on-device ONNX models). remove.bg was considered
   and dropped per the no-paid-services decision.
-- **No per-file progress bar.** Upload is sequential and the status line names the file it is on,
-  which is enough at this scale; a real progress bar needs a streaming upload the API does not offer.
+- **No per-file progress bar.** Processing is sequential and the status line names the file it is
+  on, which is enough at this scale.
+- **No face-detection model.** `HeadFinder` crops to the head by reading the shape of the saliency
+  mask — peak, neck, shoulder flare — rather than adding a second ONNX model for faces.

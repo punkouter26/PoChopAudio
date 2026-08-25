@@ -21,11 +21,6 @@
                         <FontIcon Glyph="&#xE722;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Health &amp; Settings" Tag="Health">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE958;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
             </NavigationView.MenuItems>
 
             <Frame x:Name="ContentFrame" Margin="0" />

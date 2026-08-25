@@ -39,6 +39,16 @@
                             Command="{x:Bind ViewModel.TakePhotoCommand}"
                             IsEnabled="{x:Bind ViewModel.IsCapturing, Mode=OneWay, Converter={StaticResource InvertBool}}" />
 
+                    <!--
+                        The Health page used to be where a missing model was reported. With that page
+                        gone this is the only place the user would find out, so it says so inline.
+                    -->
+                    <Border Background="#33EF4444" CornerRadius="6" Padding="12"
+                            Visibility="{x:Bind ViewModel.IsCutoutAvailable, Converter={StaticResource InvertedBoolToVis}}">
+                        <TextBlock TextWrapping="Wrap" FontWeight="SemiBold"
+                                   Text="Background removal is unavailable: u2netp.onnx is missing. Run SCRIPTS/download-models.ps1, then restart." />
+                    </Border>
+
                     <ProgressBar IsIndeterminate="True"
                                  Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                     <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" TextWrapping="Wrap"
@@ -46,6 +56,77 @@
                                Foreground="#EF4444" FontWeight="SemiBold" />
                 </StackPanel>
             </Border>
+
+            <!-- ── Fine tune ────────────────────────────────────────────────── -->
+            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                      Header="Fine tune"
+                      Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource BoolToVis}}">
+                <StackPanel Spacing="12">
+
+                    <controls:WrapPanel ItemWidth="260" ItemHeight="66" HorizontalSpacing="16" VerticalSpacing="8">
+
+                        <StackPanel Spacing="2">
+                            <Grid>
+                                <TextBlock Text="Cutoff" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind ViewModel.Tuning.AlphaThreshold, Mode=OneWay}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Slider Value="{x:Bind ViewModel.Tuning.AlphaThreshold, Mode=TwoWay}"
+                                    Minimum="0" Maximum="255" StepFrequency="5" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
+                            <Grid>
+                                <TextBlock Text="Tighten / loosen" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind ViewModel.Tuning.Morphology, Mode=OneWay}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Slider Value="{x:Bind ViewModel.Tuning.Morphology, Mode=TwoWay}"
+                                    Minimum="-3" Maximum="3" StepFrequency="1" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
+                            <Grid>
+                                <TextBlock Text="Soften edge" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind ViewModel.Tuning.FeatherRadius, Mode=OneWay}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Slider Value="{x:Bind ViewModel.Tuning.FeatherRadius, Mode=TwoWay}"
+                                    Minimum="0" Maximum="5" StepFrequency="1" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
+                            <Grid>
+                                <TextBlock Text="Head cut (%)" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind ViewModel.Tuning.HeadCutBias, Mode=OneWay}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Slider Value="{x:Bind ViewModel.Tuning.HeadCutBias, Mode=TwoWay}"
+                                    Minimum="-40" Maximum="40" StepFrequency="5" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
+                            <Grid>
+                                <TextBlock Text="Padding (px)" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind ViewModel.Tuning.CropPadding, Mode=OneWay}" HorizontalAlignment="Right" />
+                            </Grid>
+                            <Slider Value="{x:Bind ViewModel.Tuning.CropPadding, Mode=TwoWay}"
+                                    Minimum="0" Maximum="200" StepFrequency="4" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Edge" FontWeight="SemiBold" />
+                            <ToggleSwitch IsOn="{x:Bind ViewModel.Tuning.HardEdge, Mode=TwoWay}"
+                                          OnContent="Sharp" OffContent="Soft" MinWidth="0" />
+                        </StackPanel>
+                    </controls:WrapPanel>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Re-apply to all" Style="{ThemeResource AccentButtonStyle}"
+                                Command="{x:Bind ViewModel.ReapplyAllCommand}" />
+                        <Button Content="Reset" Command="{x:Bind ViewModel.ResetTuningCommand}" />
+                    </StackPanel>
+
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="Cutoff decides what counts as background. Sharp edge removes the halo around hair; soften only if it looks too cut-out. Head cut moves the neck line up or down." />
+                </StackPanel>
+            </Expander>
 
             <!-- ── Results ──────────────────────────────────────────────────── -->
             <Grid Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource BoolToVis}}">

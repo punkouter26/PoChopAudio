@@ -39,12 +39,10 @@ public partial class App : Application
         services.AddSingleton<ChopJobStore>();
         services.AddSingleton<ChopService>();
 
-        services.AddSingleton<CutoutJobStore>();
         services.AddSingleton(new CutoutModelOptions(
             Path.Combine(AppContext.BaseDirectory, "Content", "Models", "u2netp.onnx")));
         services.AddSingleton<IBackgroundRemover, OnnxU2NetRemover>();
         services.AddSingleton<EnginePicker>();
-        services.AddSingleton<ProgressChannel>();
         services.AddSingleton<CutoutService>();
 
         // Hardware / Media Services
@@ -56,7 +54,6 @@ public partial class App : Application
         // ViewModels
         services.AddTransient<ChopViewModel>();
         services.AddTransient<CutoutViewModel>();
-        services.AddTransient<HealthViewModel>();
 
         _serviceProvider = services.BuildServiceProvider();
     }

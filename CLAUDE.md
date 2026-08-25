@@ -2,179 +2,190 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## What this is
+
+**PoChopAudio is a WinUI 3 desktop app.** It splits recordings into one clip per take, and takes
+head-shot photos and strips their backgrounds. Everything runs on the machine: there is no server,
+no HTTP, and nothing is uploaded.
+
+It did not start that way. The repo used to host an ASP.NET Minimal API plus a Blazor WASM client,
+and some of the architecture is still shaped by that history — the vertical slices, the chop job
+store, the `Outcome<T>` return type. Those all survive because they earned their place, not because a
+server is coming back. **`PoChopAudio.API` and `PoChopAudio.Client` were deleted deliberately; do
+not reintroduce them.**
+
 ## Governance documents
 
-Three docs already exist and are authoritative — read them before making structural changes:
-
-- [NET_RULES.md](NET_RULES.md) — the standing rules for this codebase (naming, layout, API/security,
-  Blazor UI, observability, testing). Non-negotiable unless the user says otherwise.
-- [AGENT.md](AGENT.md) — the living architecture doc. It records **what was actually built** and why,
-  including a "Deliberately absent" section (no auth, no primary DB, no paid AI services). Update it
-  when architecture changes; do not re-add things it explicitly rejects without asking.
+- [NET_RULES.md](NET_RULES.md) — the standing rules (naming, layout, testing). Written for this
+  author's projects generally, so **its §4 Blazor UI section and the web half of §6 no longer apply
+  here**; §1 also says trunk is `master` while this repo's trunk is `main`. Everything else holds.
+- [AGENT.md](AGENT.md) — the living architecture doc. Records what was actually built and why,
+  including a "Deliberately absent" section. Update it when architecture changes.
 - [README.md](README.md) — user-facing behaviour of the chop knobs.
 
 ## Commands
 
 ```powershell
-# Restore + build (Release) + run all tests. Add -Run to publish and start on http://localhost:5177
+# Restore + build (Release) + run all tests. Add -Run to also build and launch the desktop app.
 ./SCRIPTS/setup.ps1
 ./SCRIPTS/setup.ps1 -Run
 
-# Fetch the ~4.4 MB u2netp.onnx cutout model into src/PoChopAudio.API/Content/Models (idempotent)
+# Fetch the ~4.4 MB u2netp.onnx cutout model into src/PoChopAudio.WinUI/Content/Models (idempotent)
 ./SCRIPTS/download-models.ps1
-
-# Assert the browser recorder's WAV header still matches what NAudio expects (node only, no browser)
-node SCRIPTS/verify-recorder-wav.js
-
-# Assert the head-shot crop bounds and store-only ZIP layout are still correct (node only)
-node SCRIPTS/verify-camera.js
-
-# Post-build smoke test: /health, /diag, and the Blazor #app mount point
-./SCRIPTS/smoke-test.ps1 -Url 'http://localhost:5177'
 ```
 
 Plain dotnet, against the `.slnx` solution:
 
 ```powershell
 dotnet build PoChopAudio.slnx -c Release
-dotnet test PoChopAudio.slnx                              # all four test projects
-dotnet test tests/PoChopAudio.Unit                        # one project
+dotnet test PoChopAudio.slnx                              # both test projects
 dotnet test tests/PoChopAudio.Unit --filter "FullyQualifiedName~SegmentDetectorTests"
-dotnet test tests/PoChopAudio.Unit --filter "DisplayName~Sweeps"   # one test
 ```
 
 `TreatWarningsAsErrors` is on solution-wide — a warning fails the build.
 
-### Do not use `dotnet run` to see the app
+### Building and running the desktop app
 
-`dotnet run` on the API does not copy the Client's static web assets (`index.html`, `_framework/`)
-into the API's bin, so the browser gets an unfilled placeholder page. `setup.ps1 -Run` publishes
-first and then patches two known Blazor-SDK asset gaps (resolved HTML placeholders and fingerprinted
-`_framework` files). If you change how the client is hosted, that script is where the workaround lives.
-`launchSettings.json` still uses port 5294; the supported entry point is 5177 via the script.
+The solution-wide build does **not** produce a runnable app: the WinUI project needs an explicit
+platform and RID.
+
+```powershell
+dotnet build src/PoChopAudio.WinUI/PoChopAudio.WinUI.csproj -c Release -p:Platform=ARM64 -r win-arm64
+```
+
+Then run the exe from **`bin`, never `publish`**:
+
+```
+src\PoChopAudio.WinUI\bin\ARM64\Release\net10.0-windows10.0.19041.0\win-arm64\PoChopAudio.WinUI.exe
+```
+
+`dotnet publish` silently drops `PoChopAudio.WinUI.pri`, the app's own resource index, and without
+it the app dies at startup with a stowed exception (`0xC000027B`) inside `Microsoft.UI.Xaml.dll`.
+The build output has the `.pri` plus every self-contained Windows App SDK file.
+
+**The app is self-contained** (`WindowsAppSDKSelfContained` + `SelfContained`). The pinned Windows
+App SDK 1.6 runtime is not installed on most machines, and an unpackaged app without it fails to
+launch with `0x80670016`. Shipping the runtime in the output folder avoids a machine-wide install.
 
 ## Architecture in one pass
 
-.NET 10 / C# 15. Three source projects, four test projects, vertical slices.
+.NET 10 / C# 15. Three source projects, two test projects, vertical slices.
 
-- **`src/PoChopAudio.API`** — Minimal API host that also serves the Blazor WASM client
-  (`UseBlazorFrameworkFiles` + `MapFallbackToFile("index.html")`). Everything is wired in
-  [Program.cs](src/PoChopAudio.API/Program.cs); each feature exposes one `Map{Feature}Endpoints`
-  extension over `MapGroup()`.
-- **`src/PoChopAudio.Client`** — Blazor WASM. Scoped `.razor.css` only, no inline styles.
-- **`src/PoChopAudio.Shared`** — contracts referenced by both sides. Limits (`ChopLimits`,
-  `CutoutLimits`) are `const` here so the UI can never offer what the API will reject; keep the
-  two ends in sync by editing only this project.
+```
+src/PoChopAudio.Services/   Host-agnostic engine room. No UI, no ASP.NET. All the real logic.
+src/PoChopAudio.Shared/     Contracts and const limits used by both other projects.
+src/PoChopAudio.WinUI/      The app: XAML views, view models, camera, audio devices, file pickers.
+```
 
-Two independent features, same shape:
-
-| | Chop (audio) | Cutout (image) |
-| --- | --- | --- |
-| Slice | `Features/Chop` | `Features/Cutout` |
-| Routes | `/api/chop/*` | `/api/cutout/*` |
-| Job store | `ChopJobStore` | `CutoutJobStore` |
-| Temp dir | `%TEMP%/PoChopAudio` | `%TEMP%/PoChopAudioCutout` |
-
-Both follow **decode once, keep bytes on disk, keep metadata in memory**: upload decodes to a
-canonical form in a temp job directory, analyze re-runs only the cheap tuning step against it, and
-download slices/encodes on demand. Jobs expire after 2 h and the directory is wiped on start and
-shutdown — there is no persistent store of user media. Per NET_RULES §2, slices never reference each
-other; anything two slices need goes in `Shared`.
-
-`Features/Archive` + `Storage/AzuriteBlobStore` persist only a **best-effort** batch recency index to
-Azurite. Every write is caught and logged, so a missing Azurite degrades the "Recent batches" list and
-nothing else. Never make a code path depend on Azurite being reachable.
+The dependency direction is one-way: `WinUI → Services → Shared`. `Services` must never reference
+`WinUI` or take a dependency on any UI or hosting framework — that constraint is what keeps the
+logic testable without a window, and it is why the two test projects can cover it directly.
 
 ### Where the real logic is
 
-The interesting, test-covered parts are pure and I/O-free — put new logic there, not in endpoints:
+The interesting, test-covered parts are pure and I/O-free — put new logic there, not in view models:
 
-- [SegmentDetector.cs](src/PoChopAudio.API/Features/Chop/SegmentDetector.cs) — the split algorithm.
+- [SegmentDetector.cs](src/PoChopAudio.Services/Chop/SegmentDetector.cs) — the split algorithm.
   It does not pick a fixed threshold: it sweeps every gate from `noiseFloor + 3 dB` to `peak - 3 dB`
   in 0.5 dB steps and keeps the centre of the *widest band of gates that agree on the expected
   count*. Read the Detection section of AGENT.md before touching it.
-- [ClipExporter.cs](src/PoChopAudio.API/Features/Chop/ClipExporter.cs) — WAV slicing and
-  `UniqueStems`, the case-insensitive de-duplication that makes the flat batch ZIP safe on Windows.
-  Also the two-pass export: normalization needs the whole clip measured before the first sample can
-  be written, so it reads the slice twice rather than buffering it.
-- [ClipProcessor.cs](src/PoChopAudio.API/Features/Chop/ClipProcessor.cs) — export gain and fade
-  maths, no I/O. The three guards (silence, ceiling, max gain) live in `DecideGain`.
-- [LoudnessMeter.cs](src/PoChopAudio.API/Features/Chop/LoudnessMeter.cs) — ITU-R BS.1770-4. The
+- [ClipExporter.cs](src/PoChopAudio.Services/Chop/ClipExporter.cs) — WAV slicing and `UniqueStems`,
+  the case-insensitive de-duplication that makes the flat batch ZIP safe on Windows. Also the
+  two-pass export: normalization needs the whole clip measured before the first sample can be
+  written, so it reads the slice twice rather than buffering it.
+- [ClipProcessor.cs](src/PoChopAudio.Services/Chop/ClipProcessor.cs) — export gain and fade maths,
+  no I/O. The three guards (silence, ceiling, max gain) live in `DecideGain`.
+- [LoudnessMeter.cs](src/PoChopAudio.Services/Chop/LoudnessMeter.cs) — ITU-R BS.1770-4. The
   K-weighting biquads come from the analog prototype, **not** the RBJ cookbook shelf, which is a
-  different filter and reads ~0.25 LU low. Read the Export polish section of AGENT.md before
-  touching it.
-- [EdgeProcessor.cs](src/PoChopAudio.API/Features/Cutout/EdgeProcessor.cs) — mask threshold,
-  morphology, feather, alpha multiplier.
-- [ImageDecoder.cs](src/PoChopAudio.API/Features/Cutout/ImageDecoder.cs) — decode, EXIF auto-rotate,
+  different filter and reads ~0.25 LU low.
+- [EdgeProcessor.cs](src/PoChopAudio.Services/Cutout/EdgeProcessor.cs) — mask threshold, morphology,
+  feather, alpha multiplier, in that order.
+- [HeadFinder.cs](src/PoChopAudio.Services/Cutout/HeadFinder.cs) — crops to the head alone. u2netp
+  is a saliency model, not a face model, so its alpha bounding box always includes the shoulders.
+  This reads per-row mask widths: the head widens to a peak, narrows to the neck, then the
+  shoulders flare back out. Cut at the neck. A head-only photo never flares and keeps full height.
+- [ImageDecoder.cs](src/PoChopAudio.Services/Cutout/ImageDecoder.cs) — decode, EXIF auto-rotate,
   Pixel Motion Photo (`.MP.jpg`) trailer strip.
 
-### Browser recording
+### The two services
 
-`RecorderPanel.razor` → `AudioRecorder.cs` → `wwwroot/js/recorder.js` captures from the microphone
-and **writes its own 16-bit PCM WAV in the browser**. Do not swap this for `MediaRecorder`: it emits
-WebM/Opus on Chrome/Firefox and MP4/AAC on Safari, and `AudioDecoder` handles neither off Windows,
-so it would work locally and fail for most users. Writing the WAV client-side means a recording is
-byte-for-byte an ordinary upload from `PostUploadAsync` onward.
+`ChopService` and `CutoutService` are the whole feature surface. The view models call them and
+nothing else.
 
-The WAV header is the one place the browser and NAudio must agree, and a mistake there surfaces as
-an opaque 422. `node SCRIPTS/verify-recorder-wav.js` loads the real `recorder.js` and asserts every
-field — run it after touching the encoder. Mic capture itself (getUserMedia, AudioWorklet, the meter)
-needs a real browser and microphone and is not covered by any automated test.
+They are deliberately different shapes. `ChopService` keeps the **job store**: upload decodes to a
+canonical WAV, analyze re-runs only the cheap tuning step against it, and export renders on demand,
+so turning a knob does not re-decode the file. Jobs expire after 2 h.
 
-### Head shots are deliberately server-free
+`CutoutService` has no job store at all — `CutOutAsync` decodes, masks, cleans, crops and encodes in
+one call. The multi-step version existed to give a browser a handle to refer back to across
+stateless requests; in-process the caller already holds the bytes.
 
-`/headshots` ([HeadShots.razor](src/PoChopAudio.Client/Pages/HeadShots.razor) →
-[CameraCapture.cs](src/PoChopAudio.Client/Services/CameraCapture.cs) →
-`wwwroot/js/camera.js`) captures, cuts out, crops and zips entirely in the browser. **Do not
-"simplify" it onto the Cutout page's pipeline** — that uploads before it analyses, and the whole
-reason this page exists separately is that photographs of a user's face should not leave the
-machine. Pixels stay in a JS-side map; C# only ever holds ids and object URLs.
+Per NET_RULES §2, slices never reference each other; anything two slices need goes in `Shared`.
 
-Cropping uses the alpha bounding box (`subjectBounds`), not face detection — after masking, the
-only opaque pixels are the head. `node SCRIPTS/verify-camera.js` covers the crop bounds and the
-store-only ZIP layout. The camera itself needs a real browser and is not covered by any test.
+### Outcome, not exceptions
 
-**Known defect, not caused by this page:** `CutoutEngine.BrowserOnnx` on the Cutout page silently
-does nothing. `ReanalyzeOneAsync` computes the mask, discards it, and reports success, while the UI
-and ZIP fetch the server's never-cut copy. There is no endpoint to post a browser result back.
+Service calls return `Outcome<T>` ([Outcome.cs](src/PoChopAudio.Services/Outcome.cs)): a value, or a
+domain reason there isn't one (`NotFound`, `Invalid`, `Empty`, `TooLarge`, `UnsupportedMedia`,
+`Undecodable`, `EngineUnavailable`). Expected failures travel on the normal return path — an expired
+job is not exceptional.
 
-### Optional-capability pattern
+The view models funnel everything into an `ErrorMessage`, so they unwrap with `.OrThrow()`
+([ServiceOutcomeExtensions.cs](src/PoChopAudio.WinUI/Services/ServiceOutcomeExtensions.cs)), which
+converts an outcome to an exception **at the consumer boundary only**. Do not push that back into
+the services.
 
-Two things are absent from a fresh clone and the code must keep working without them:
+### Long work must not run on the UI thread
 
-- **`u2netp.onnx`** — the API csproj includes it only `Condition="Exists(...)"`. When missing,
-  `EnginePicker` drops `OnnxU2Net` from `/api/cutout/capabilities` and the UI hides it; the
-  browser-side ONNX engine still works. Cutout E2E tests skip themselves when the model is absent.
-- **Platform codecs** — M4A/AAC/WMA go through `MediaFoundationReader` and are Windows-only.
-  `AudioDecoder.IsSupportedExtension` and `/diag` report the list for the running platform.
-
-Follow this pattern for anything else optional: probe, report through `/capabilities` or `/diag`,
-degrade — never throw at startup.
+`Analyze`, `GetClip` and the ZIP builders do real DSP and image work. Call them through `Task.Run`
+from a view model or the window freezes. This is why the service methods are mostly synchronous —
+the caller decides where they run.
 
 ## Conventions worth knowing
 
 - **IDs are `readonly record struct`** with `TryParse` (`JobId`, `CutoutJobId`) — no bare `Guid` or
   `string` ids crossing a boundary. Closed sets are enums (`CutoutEngine`).
 - **Logging** goes through `[LoggerMessage]` source generators (`ChopLog`, `CutoutLog`). No string
-  interpolation in log calls.
-- **Endpoints return `TypedResults`** with an explicit `Results<...>` union; failures are
-  `TypedResults.Problem` with a real status code, never an exception escaping to a 500.
-- **Batch failure is per file.** A file that will not decode, or that finds the wrong take count, is
-  flagged and still included in the ZIP; the batch never aborts. Unknown/expired job ids in a batch
-  request are skipped, and only an entirely unusable set is a 404.
-- **Per-file settings pin.** Touching a file's own knobs sets `UsesOwnSettings`, excluding it from
-  *Re-split all*. Preserve that when changing batch behaviour.
+  interpolation in log calls. `Services` uses `Microsoft.Extensions.Logging.Abstractions`; the app
+  registers a factory with `services.AddLogging()`.
+- **Batch failure is per file.** A file that will not decode is flagged and still included in the
+  ZIP; the batch never aborts.
 - **Packages are pinned centrally** in [Directory.Packages.props](Directory.Packages.props); project
   files carry bare `<PackageReference Include="..." />` with no version.
-- NET_RULES §1 says trunk-based on `master`; this repo's trunk is actually `main`.
+- **Scoped XAML, no inline styles.** WinUI 3 ships no `WrapPanel`; there is a small one in
+  [Controls/WrapPanel.cs](src/PoChopAudio.WinUI/Controls/WrapPanel.cs) rather than a toolkit
+  dependency.
+
+### Optional-capability pattern
+
+`u2netp.onnx` is absent from a fresh clone. The WinUI csproj includes it only
+`Condition="Exists(...)"`; when missing, `EnginePicker` drops `OnnxU2Net`, `CutoutService.IsAvailable`
+goes false and the Cutout page shows a banner saying so. Cutout tests skip themselves.
+
+Platform codecs are the same shape: M4A/AAC/WMA go through `MediaFoundationReader`.
+`AudioDecoder.IsSupportedExtension` reports the list for the running platform.
+
+Follow this pattern for anything else optional: probe, report, degrade — never throw at startup.
+
+### Camera
+
+`CutoutPage` → `CameraService` → `MediaFrameReader`. WinUI 3 has no `CaptureElement` (that was UWP),
+so the viewfinder is built from frames pushed into a `SoftwareBitmapSource`. Stills come from the
+most recent preview frame rather than `CapturePhotoToStreamAsync`, which fights the frame reader for
+the device on many webcams.
+
+The page drops frames while one is still being handed to the UI thread — without that guard the
+queue grows without bound and the preview drifts seconds behind the room.
 
 ## Test layout
 
 | Project | Scope | State |
 | --- | --- | --- |
-| `tests/PoChopAudio.Unit` | Pure logic, no I/O — detector, exporters, decoder, edge processor | Real coverage; add here first |
-| `tests/PoChopAudio.Integration` | `WebApplicationFactory<Program>` HTTP pipeline | `CutoutPipelineTests` and `ClipExportTests` real; `IntegrationTests` still a placeholder |
-| `tests/PoChopAudio.E2EAPI` | Contract constants + cutout against real sample photos | **4 tests fail in a fresh clone** — `CutoutSamplePhotosTests` needs `PXL_*.jpg` files in the repo root that were never committed. It guards on the missing ONNX model but not on missing photos. |
-| `tests/PoChopAudio.E2EUI` | Playwright, mobile + desktop per NET_RULES §6 | **Placeholder only** — no Playwright dependency yet |
+| `tests/PoChopAudio.Unit` | Pure logic — detector, exporters, decoder, edge processor | 103 tests, all passing. Add here first |
+| `tests/PoChopAudio.Integration` | Multi-component behaviour against the real services | 19 tests, all passing |
 
-NET_RULES §6 coverage targets: Unit 100 %, Integration 50 %, API E2E 25 %, UI E2E 25 %.
+Both reference `Services` and `Shared` directly. `Integration` used to drive the HTTP pipeline
+through `WebApplicationFactory`; when the API was deleted its export-maths and cutout-pipeline tests
+were ported to call the services instead, which is closer to what the app actually does.
+
+The camera, the microphone and the WinUI UI itself need real hardware and a real window, and are
+**not covered by any automated test**.

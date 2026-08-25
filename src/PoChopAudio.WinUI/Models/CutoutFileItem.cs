@@ -1,19 +1,13 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml.Media.Imaging;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.WinUI.Models;
 
+/// <summary>One photo taken on this page, and the cutout made from it.</summary>
 public partial class CutoutFileItem : ObservableObject
 {
     [ObservableProperty]
-    private string _id = Guid.NewGuid().ToString("N");
-
-    [ObservableProperty]
     private string _fileName = string.Empty;
-
-    [ObservableProperty]
-    private string? _localFilePath;
 
     [ObservableProperty]
     private long _bytes;
@@ -25,13 +19,7 @@ public partial class CutoutFileItem : ObservableObject
     private int _height;
 
     [ObservableProperty]
-    private string? _jobId;
-
-    [ObservableProperty]
     private ItemProcessingStatus _status = ItemProcessingStatus.Queued;
-
-    [ObservableProperty]
-    private string? _warning;
 
     [ObservableProperty]
     private string? _errorMessage;
@@ -42,10 +30,14 @@ public partial class CutoutFileItem : ObservableObject
     [ObservableProperty]
     private BitmapImage? _cutoutImage;
 
-    [ObservableProperty]
-    private CutoutKnobsModel _settings = new();
+    /// <summary>The finished PNG, held in memory until the user saves it or clears the list.</summary>
+    public byte[]? CutoutPngBytes { get; set; }
+
+    /// <summary>The frame as captured. Kept so re-tuning re-cuts from the source, not the cutout.</summary>
+    public byte[]? OriginalPngBytes { get; set; }
 
     public bool IsReady => Status == ItemProcessingStatus.Ready;
+
     public string DetailsText => $"{Width} × {Height} px · {Bytes:N0} bytes";
 
     partial void OnWidthChanged(int value) => OnPropertyChanged(nameof(DetailsText));

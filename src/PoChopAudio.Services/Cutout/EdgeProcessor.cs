@@ -20,7 +20,7 @@ public static class EdgeProcessor
 
         var buffer = (byte[])rgba.Clone();
 
-        Threshold(buffer, width, height, options.AlphaThreshold);
+        Threshold(buffer, width, height, options.AlphaThreshold, options.HardEdge);
         Morphology(buffer, width, height, options.Morphology);
         FeatherInPlace(buffer, width, height, options.FeatherRadius);
         ScaleAlpha(buffer, width, height, options.AlphaMultiplier);
@@ -29,7 +29,16 @@ public static class EdgeProcessor
     }
 
     /// <summary>Sets any alpha below <paramref name="threshold"/> to 0. Otherwise leaves alpha unchanged.</summary>
-    public static void Threshold(byte[] rgba, int width, int height, byte threshold)
+    public static void Threshold(byte[] rgba, int width, int height, byte threshold) =>
+        Threshold(rgba, width, height, threshold, hardEdge: false);
+
+    /// <summary>
+    /// Sets any alpha at or below <paramref name="threshold"/> to 0. With
+    /// <paramref name="hardEdge"/> everything above it is snapped to 255, turning the model's soft
+    /// saliency map into a clean stencil; without it the surviving alpha is left as the model
+    /// produced it, which keeps a translucent fringe.
+    /// </summary>
+    public static void Threshold(byte[] rgba, int width, int height, byte threshold, bool hardEdge)
     {
         var stride = width * CutoutLimits.AlphaChannels;
         for (var y = 0; y < height; y++)
@@ -41,6 +50,10 @@ public static class EdgeProcessor
                 if (rgba[a] <= threshold)
                 {
                     rgba[a] = 0;
+                }
+                else if (hardEdge)
+                {
+                    rgba[a] = 255;
                 }
             }
         }

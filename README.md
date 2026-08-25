@@ -1,7 +1,10 @@
 # PoChopAudio
 
-Takes recordings that each contain several takes of the same sound and splits them into one WAV per
-take, trimmed to the start and end of the sound.
+A Windows desktop app. It takes recordings that each contain several takes of the same sound and
+splits them into one WAV per take, trimmed to the start and end of the sound. It also takes head-shot
+photos and strips their backgrounds.
+
+Everything runs on your machine. There is no server and nothing is uploaded.
 
 ## Run it
 
@@ -9,10 +12,11 @@ take, trimmed to the start and end of the sound.
 ./SCRIPTS/setup.ps1 -Run
 ```
 
-Then open <http://localhost:5177>. Pick one file or a whole folder's worth — up to 32 at a time —
-and each is split on its own.
+That restores, builds, tests, and launches the app. Pick one file or a whole folder's worth — up to
+32 at a time — and each is split on its own.
 
-API docs (Development only): <http://localhost:5177/scalar/v1>
+The app is unpackaged and self-contained, so it needs no installer and no Windows App SDK runtime
+on the machine.
 
 ## Using it
 
@@ -51,9 +55,8 @@ upload stops fitting.
 Recordings join the same batch as uploaded files, so they share the batch settings, the export
 knobs, and the combined ZIP. Nothing is uploaded until you stop.
 
-Two caveats: the browser will ask for microphone permission the first time, and recording needs a
-secure connection — `localhost` counts, plain HTTP over a network does not. Where it is unavailable
-the app says so and the file picker still works.
+Windows will ask for microphone permission the first time. Where the microphone is unavailable the
+app says so and the file picker still works.
 
 ### Export
 
@@ -98,13 +101,12 @@ and you can re-cut, delete, or retake any of them — the numbering stays contig
 
 A name of `Head` saves `Head_1.png, Head_2.png, …`, either one at a time or as a single ZIP.
 
-**Nothing is uploaded.** The camera, the background-removal model, the crop and the ZIP all run in
-the browser tab; no photograph of your face reaches the server or the disk unless you save it. The
-first cutout downloads the ONNX runtime, so it needs the network once. Like recording, the camera
-needs a secure connection — `localhost` counts, plain HTTP does not.
+**Nothing is uploaded.** The camera, the background-removal model and the crop all run inside the
+app; no photograph of your face reaches a network, and none touches the disk unless you save it.
+The ONNX model ships with the app, so this works with no network at all.
 
 ## Layout
 
-`src/PoChopAudio.API` (host + splitting), `src/PoChopAudio.Client` (Blazor WASM UI),
-`src/PoChopAudio.Shared` (contracts), `tests/PoChopAudio.Unit`. See [AGENT.md](AGENT.md) for how
-detection works.
+`src/PoChopAudio.Services` (all the audio and image logic), `src/PoChopAudio.Shared` (contracts),
+`src/PoChopAudio.WinUI` (the app itself), `tests/PoChopAudio.Unit` and
+`tests/PoChopAudio.Integration`. See [AGENT.md](AGENT.md) for how detection works.

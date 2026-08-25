@@ -1,7 +1,7 @@
-using System.Net;
-using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
+using System.IO.Compression;
+using Microsoft.Extensions.Logging.Abstractions;
 using NAudio.Wave;
+using PoChopAudio.Services;
 using PoChopAudio.Services.Chop;
 using PoChopAudio.Shared;
 using Xunit;
@@ -9,28 +9,32 @@ using Xunit;
 namespace PoChopAudio.Integration;
 
 /// <summary>
-/// Drives the export knobs through the real HTTP pipeline against a synthesised recording, then
-/// decodes what came back and measures it. Asserting on the returned samples is the only way to
-/// know the query string reached the exporter and the gain landed where it was asked to — a
-/// status code proves nothing about audio.
+/// Drives the export knobs through the real service against a synthesised recording, then decodes
+/// what came back and measures it. Asserting on the returned samples is the only way to know the
+/// options reached the exporter and the gain landed where it was asked to.
+///
+/// These ran over HTTP until the API was removed. Nothing about what they prove changed: upload,
+/// analyze and export are the same calls the desktop app makes, minus the transport.
 /// </summary>
-public sealed class ClipExportTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ClipExportTests : IDisposable
 {
     private const int SampleRate = 48_000;
     private const double TonePeakDb = -12;
 
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ChopJobStore _store = new();
+    private readonly ChopService _chop;
 
-    public ClipExportTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public ClipExportTests() => _chop = new ChopService(_store, NullLoggerFactory.Instance);
+
+    public void Dispose() => _store.Dispose();
 
     [Fact]
     public async Task PlainDownloadIsUnchangedByAnEmptyExportQuery()
     {
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client);
+        var jobId = await UploadAndAnalyzeAsync();
 
-        var bare = await client.GetByteArrayAsync($"api/chop/{jobId}/clips/1");
-        var explicitlyNone = await client.GetByteArrayAsync($"api/chop/{jobId}/clips/1?normalize=None");
+        var bare = Clip(jobId, new ExportOptions());
+        var explicitlyNone = Clip(jobId, new ExportOptions { Normalize = NormalizeMode.None });
 
         Assert.Equal(bare, explicitlyNone);
     }
@@ -38,10 +42,9 @@ public sealed class ClipExportTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task PeakNormalizationLandsThePeakOnTheTarget()
     {
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client);
+        var jobId = await UploadAndAnalyzeAsync();
 
-        var wav = await client.GetByteArrayAsync($"api/chop/{jobId}/clips/1?normalize=Peak&targetDb=-3");
+        var wav = Clip(jobId, new ExportOptions { Normalize = NormalizeMode.Peak, TargetDb = -3 });
         var (peakDb, _) = Measure(wav);
 
         Assert.InRange(peakDb, -3.1, -2.9);
@@ -50,10 +53,9 @@ public sealed class ClipExportTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task LoudnessNormalizationLandsTheClipOnTheLufsTarget()
     {
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client);
+        var jobId = await UploadAndAnalyzeAsync();
 
-        var wav = await client.GetByteArrayAsync($"api/chop/{jobId}/clips/1?normalize=Lufs&targetDb=-16");
+        var wav = Clip(jobId, new ExportOptions { Normalize = NormalizeMode.Lufs, TargetDb = -16 });
         var (_, lufs) = Measure(wav);
 
         Assert.InRange(lufs, -16.3, -15.7);
@@ -62,12 +64,11 @@ public sealed class ClipExportTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task TheCeilingIsNeverBreachedEvenByAnAbsurdTarget()
     {
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client);
+        var jobId = await UploadAndAnalyzeAsync();
 
         // Asking for 0 LUFS on a -15 LUFS clip wants +15 dB, which would drive the peak well past
         // full scale. The ceiling has to win, and nothing may clip.
-        var wav = await client.GetByteArrayAsync($"api/chop/{jobId}/clips/1?normalize=Lufs&targetDb=0&ceilingDb=-1");
+        var wav = Clip(jobId, new ExportOptions { Normalize = NormalizeMode.Lufs, TargetDb = 0, CeilingDb = -1 });
         var (peakDb, _) = Measure(wav);
 
         Assert.InRange(peakDb, -1.15, -0.95);
@@ -76,11 +77,10 @@ public sealed class ClipExportTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task FadesSilenceTheEdgesOfTheClip()
     {
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client);
+        var jobId = await UploadAndAnalyzeAsync();
 
-        var plain = ReadSamples(await client.GetByteArrayAsync($"api/chop/{jobId}/clips/1"));
-        var faded = ReadSamples(await client.GetByteArrayAsync($"api/chop/{jobId}/clips/1?fadeInMs=50&fadeOutMs=50"));
+        var plain = ReadSamples(Clip(jobId, new ExportOptions()));
+        var faded = ReadSamples(Clip(jobId, new ExportOptions { FadeInMs = 50, FadeOutMs = 50 }));
 
         Assert.Equal(plain.Length, faded.Length);
         Assert.True(Math.Abs(faded[0]) <= Math.Abs(plain[0]));
@@ -95,13 +95,12 @@ public sealed class ClipExportTests : IClassFixture<WebApplicationFactory<Progra
     [Fact]
     public async Task ExportOptionsApplyToTheBatchZipToo()
     {
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client);
+        var jobId = await UploadAndAnalyzeAsync();
 
-        using var response = await client.GetAsync($"api/chop/clips.zip?jobs={jobId}&normalize=Peak&targetDb=-3");
-        response.EnsureSuccessStatusCode();
+        var outcome = _chop.GetBatchZip([jobId], new ExportOptions { Normalize = NormalizeMode.Peak, TargetDb = -3 });
+        Assert.True(outcome.IsSuccess);
 
-        using var archive = new System.IO.Compression.ZipArchive(await response.Content.ReadAsStreamAsync());
+        using var archive = new ZipArchive(new MemoryStream(outcome.Value.Content));
         Assert.NotEmpty(archive.Entries);
 
         using var entry = archive.Entries[0].Open();
@@ -113,61 +112,64 @@ public sealed class ClipExportTests : IClassFixture<WebApplicationFactory<Progra
     }
 
     [Theory]
-    [InlineData("targetDb=5")]
-    [InlineData("targetDb=-999")]
-    [InlineData("ceilingDb=3")]
-    [InlineData("fadeInMs=-1")]
-    [InlineData("fadeOutMs=99999")]
-    public async Task OutOfRangeExportOptionsAreRejected(string query)
+    [MemberData(nameof(OutOfRangeExports))]
+    public async Task OutOfRangeExportOptionsAreRejected(ExportOptions export)
     {
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client);
+        var jobId = await UploadAndAnalyzeAsync();
 
-        using var response = await client.GetAsync($"api/chop/{jobId}/clips/1?{query}");
+        var outcome = _chop.GetClip(jobId, 1, export);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.False(outcome.IsSuccess);
+        Assert.Equal(OutcomeFailure.Invalid, outcome.Failure);
+        Assert.NotEmpty(outcome.Errors);
     }
+
+    public static TheoryData<ExportOptions> OutOfRangeExports() =>
+    [
+        new ExportOptions { TargetDb = 5 },
+        new ExportOptions { TargetDb = -999 },
+        new ExportOptions { CeilingDb = 3 },
+        new ExportOptions { FadeInMs = -1 },
+        new ExportOptions { FadeOutMs = 99_999 },
+    ];
 
     [Fact]
     public async Task ASilentClipIsLeftAloneRatherThanAmplified()
     {
         // Normalizing digital silence would be a divide by zero dressed up as a feature.
-        using var client = _factory.CreateClient();
-        var jobId = await UploadAndAnalyzeAsync(client, silent: true);
+        var jobId = await UploadAndAnalyzeAsync(silent: true);
 
-        using var response = await client.GetAsync($"api/chop/{jobId}/clips/1?normalize=Peak&targetDb=-1");
+        var outcome = _chop.GetClip(jobId, 1, new ExportOptions { Normalize = NormalizeMode.Peak, TargetDb = -1 });
 
-        // Either no segment was found in silence (404) or the one found came back untouched.
-        if (response.StatusCode is HttpStatusCode.OK)
+        // Either no segment was found in silence, or the one found came back untouched.
+        if (outcome.IsSuccess)
         {
-            var samples = ReadSamples(await response.Content.ReadAsByteArrayAsync());
+            var samples = ReadSamples(outcome.Value.Content);
             Assert.All(samples, sample => Assert.InRange(Math.Abs(sample), 0, 0.01f));
         }
         else
         {
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(OutcomeFailure.NotFound, outcome.Failure);
         }
     }
 
-    private static async Task<string> UploadAndAnalyzeAsync(HttpClient client, bool silent = false)
+    private byte[] Clip(string jobId, ExportOptions export)
     {
-        using var content = new MultipartFormDataContent
-        {
-            { new ByteArrayContent(BuildRecording(silent)), "file", "takes.wav" },
-        };
+        var outcome = _chop.GetClip(jobId, 1, export);
+        Assert.True(outcome.IsSuccess, outcome.Message);
+        return outcome.Value.Content;
+    }
 
-        using var upload = await client.PostAsync("api/chop/upload", content);
-        upload.EnsureSuccessStatusCode();
+    private async Task<string> UploadAndAnalyzeAsync(bool silent = false)
+    {
+        using var source = new MemoryStream(BuildRecording(silent));
+        var upload = await _chop.UploadAsync(source, "takes.wav", source.Length);
+        Assert.True(upload.IsSuccess, upload.Message);
 
-        var result = await upload.Content.ReadFromJsonAsync<UploadResult>();
-        Assert.NotNull(result);
+        var analyze = _chop.Analyze(upload.Value.JobId, new ChopOptions { ExpectedSegments = 5 });
+        Assert.True(analyze.IsSuccess, analyze.Message);
 
-        using var analyze = await client.PostAsJsonAsync(
-            $"api/chop/{result!.JobId}/analyze",
-            new ChopOptions { ExpectedSegments = 5 });
-        analyze.EnsureSuccessStatusCode();
-
-        return result.JobId;
+        return upload.Value.JobId;
     }
 
     /// <summary>

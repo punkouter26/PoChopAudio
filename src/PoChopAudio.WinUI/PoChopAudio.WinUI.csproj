@@ -19,9 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="..\PoChopAudio.API\Content\Models\u2netp.onnx"
-             Condition="Exists('..\PoChopAudio.API\Content\Models\u2netp.onnx')">
-      <Link>Content\Models\u2netp.onnx</Link>
+    <Content Include="Content\Models\u2netp.onnx" Condition="Exists('Content\Models\u2netp.onnx')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

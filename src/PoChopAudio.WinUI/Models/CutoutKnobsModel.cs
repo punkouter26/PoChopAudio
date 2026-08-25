@@ -9,16 +9,20 @@ public partial class CutoutKnobsModel : ObservableObject
     private CutoutEngine? _engine = CutoutEngine.OnnxU2Net;
 
     [ObservableProperty]
-    private byte _alphaThreshold = CutoutLimits.DefaultAlphaThreshold;
+    // Tuned for head shots. u2netp returns a soft mask, so at threshold 0 every faint pixel
+    // survives as a halo; 160 cuts the haze, the 1 px erode pulls the edge inside the fringe,
+    // the 1 px feather keeps that edge from looking jagged, and the 1.6x multiplier saturates
+    // what is left so the head is solid rather than translucent.
+    private byte _alphaThreshold = 160;
 
     [ObservableProperty]
-    private int _featherRadius = CutoutLimits.DefaultFeatherRadius;
+    private int _featherRadius = 1;
 
     [ObservableProperty]
-    private int _morphology = CutoutLimits.DefaultMorphology;
+    private int _morphology = -1;
 
     [ObservableProperty]
-    private double _alphaMultiplier = CutoutLimits.DefaultAlphaMultiplier;
+    private double _alphaMultiplier = 1.6;
 
     [ObservableProperty]
     private string? _backgroundColorHex;
@@ -27,7 +31,10 @@ public partial class CutoutKnobsModel : ObservableObject
     private bool _trimTransparentEdges;
 
     [ObservableProperty]
-    private int _trimPaddingPx = 16;
+    private bool _headOnly = true;
+
+    [ObservableProperty]
+    private int _trimPaddingPx = 24;
 
     public CutoutOptions ToOptions()
     {
@@ -51,6 +58,7 @@ public partial class CutoutKnobsModel : ObservableObject
             AlphaMultiplier = AlphaMultiplier,
             Background = bg,
             TrimTransparentEdges = TrimTransparentEdges,
+            HeadOnly = HeadOnly,
             TrimPaddingPx = TrimPaddingPx,
         };
     }
@@ -66,6 +74,7 @@ public partial class CutoutKnobsModel : ObservableObject
             AlphaMultiplier = AlphaMultiplier,
             BackgroundColorHex = BackgroundColorHex,
             TrimTransparentEdges = TrimTransparentEdges,
+            HeadOnly = HeadOnly,
             TrimPaddingPx = TrimPaddingPx,
         };
     }

@@ -47,6 +47,13 @@ public sealed record CutoutOptions
     public bool TrimTransparentEdges { get; init; }
 
     /// <summary>
+    /// Crops to the head alone, discarding neck and body. Takes precedence over
+    /// <see cref="TrimTransparentEdges"/>, whose box always includes the shoulders because the
+    /// saliency model marks the whole person.
+    /// </summary>
+    public bool HeadOnly { get; init; }
+
+    /// <summary>
     /// Optional padding (in pixels) added to the trimmed bounding box on every side. 0 = tight crop.
     /// </summary>
     public int TrimPaddingPx { get; init; } = 16;

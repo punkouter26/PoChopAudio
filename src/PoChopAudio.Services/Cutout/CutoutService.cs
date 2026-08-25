@@ -118,7 +118,20 @@ public sealed class CutoutService(
             var finalWidth = job.Width;
             var finalHeight = job.Height;
             int offsetX = 0, offsetY = 0;
-            if (opts.TrimTransparentEdges)
+
+            if (opts.HeadOnly)
+            {
+                var head = HeadFinder.Find(processed, job.Width, job.Height, opts.TrimPaddingPx);
+                if (!head.Empty)
+                {
+                    finalRgba = HeadFinder.Crop(processed, job.Width, head);
+                    finalWidth = head.Width;
+                    finalHeight = head.Height;
+                    offsetX = head.X;
+                    offsetY = head.Y;
+                }
+            }
+            else if (opts.TrimTransparentEdges)
             {
                 var trim = TrimHelper.Trim(processed, job.Width, job.Height, opts.TrimPaddingPx);
                 if (trim is not null)

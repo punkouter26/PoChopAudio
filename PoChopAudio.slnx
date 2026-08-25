@@ -1,7 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/PoChopAudio.API/PoChopAudio.API.csproj" />
-    <Project Path="src/PoChopAudio.Client/PoChopAudio.Client.csproj" />
     <Project Path="src/PoChopAudio.Shared/PoChopAudio.Shared.csproj" />
     <Project Path="src/PoChopAudio.Services/PoChopAudio.Services.csproj" />
     <Project Path="src/PoChopAudio.WinUI/PoChopAudio.WinUI.csproj" />
@@ -9,7 +7,5 @@
   <Folder Name="/tests/">
     <Project Path="tests/PoChopAudio.Unit/PoChopAudio.Unit.csproj" />
     <Project Path="tests/PoChopAudio.Integration/PoChopAudio.Integration.csproj" />
-    <Project Path="tests/PoChopAudio.E2EAPI/PoChopAudio.E2EAPI.csproj" />
-    <Project Path="tests/PoChopAudio.E2EUI/PoChopAudio.E2EUI.csproj" />
   </Folder>
 </Solution>

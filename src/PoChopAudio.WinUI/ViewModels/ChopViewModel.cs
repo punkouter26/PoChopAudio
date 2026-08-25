@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PoChopAudio.Services.Chop;
@@ -18,6 +19,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     private readonly AudioRecorderService _recorder;
     private readonly AudioPlayerService _player;
     private readonly Debouncer _debouncer = new(TimeSpan.FromMilliseconds(350));
+    private readonly DispatcherQueue? _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource _cts = new();
 
     public ChopViewModel(ChopService chop, AudioRecorderService recorder, AudioPlayerService player)
@@ -26,27 +28,32 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         _recorder = recorder;
         _player = player;
 
-        _recorder.LevelUpdated += (peak, rms, clip) =>
+        // Every callback below arrives on a background thread -- LevelUpdated on NAudio's capture
+        // thread, ElapsedUpdated on a System.Timers.Timer thread, and the player's on its own.
+        // Setting observable properties there raises PropertyChanged off the UI thread, which the
+        // XAML bindings cannot act on: the level meter stayed at -inf dB and the elapsed clock sat
+        // at 00:00 for the whole take. Marshal first, then set.
+        _recorder.LevelUpdated += (peak, rms, clip) => OnUiThread(() =>
         {
             PeakDb = peak;
             RmsDb = rms;
             IsClipping = clip;
-        };
+        });
 
-        _recorder.ElapsedUpdated += elapsed =>
+        _recorder.ElapsedUpdated += elapsed => OnUiThread(() =>
         {
             RecordingElapsed = $"{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
-        };
+        });
 
-        _player.PositionUpdated += (curr, total) =>
+        _player.PositionUpdated += (curr, total) => OnUiThread(() =>
         {
             if (ActivePlayingItem is not null && total > 0)
             {
                 ActivePlayingItem.PlayheadRatio = curr / total;
             }
-        };
+        });
 
-        _player.PlaybackStopped += () =>
+        _player.PlaybackStopped += () => OnUiThread(() =>
         {
             if (ActivePlayingItem is not null)
             {
@@ -55,7 +62,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
                 ActivePlayingItem.PlayingSegmentIndex = null;
                 ActivePlayingItem = null;
             }
-        };
+        });
 
         // Listen for batch knob changes
         BatchKnobs.PropertyChanged += (s, e) =>
@@ -64,6 +71,21 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         };
 
         Files.CollectionChanged += (s, e) => NotifyCountProperties();
+    }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> on the UI thread, inline when already there.
+    /// </summary>
+    private void OnUiThread(Action action)
+    {
+        if (_dispatcher is null || _dispatcher.HasThreadAccess)
+        {
+            action();
+        }
+        else
+        {
+            _dispatcher.TryEnqueue(() => action());
+        }
     }
 
     public void NotifyCountProperties()
@@ -95,9 +117,15 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     private string? _errorMessage;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartRecordingCommand))]
+    [NotifyPropertyChangedFor(nameof(CanStartRecording))]
+    [NotifyPropertyChangedFor(nameof(NeedsRecordingName))]
     private bool _isRecording;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartRecordingCommand))]
+    [NotifyPropertyChangedFor(nameof(CanStartRecording))]
+    [NotifyPropertyChangedFor(nameof(NeedsRecordingName))]
     private string _recordingName = string.Empty;
 
     [ObservableProperty]
@@ -242,10 +270,21 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         }
     }
 
-    [RelayCommand]
+    /// <summary>
+    /// A take has to be named before it can be recorded. The name becomes the WAV's filename and
+    /// every clip stem chopped out of it, so an unnamed take lands as an opaque Take_[timestamp]
+    /// that is impossible to tell apart from the next one in a batch.
+    /// </summary>
+    public bool CanStartRecording => !IsRecording && !string.IsNullOrWhiteSpace(RecordingName);
+
+    /// <summary>True only when the missing name is what is holding recording up, so the hint does
+    /// not stay on screen while a take is already running.</summary>
+    public bool NeedsRecordingName => !IsRecording && string.IsNullOrWhiteSpace(RecordingName);
+
+    [RelayCommand(CanExecute = nameof(CanStartRecording))]
     public async Task StartRecordingAsync()
     {
-        if (IsRecording) return;
+        if (!CanStartRecording) return;
 
         ErrorMessage = null;
         for (int c = 3; c > 0; c--)
@@ -535,6 +574,27 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     {
         BatchKnobs.LoadFrom(new ChopOptions());
         ExportKnobs = new ExportKnobsModel();
+    }
+
+    /// <summary>
+    /// Returns the page to its opening state: drops every loaded file and job, resets both knob
+    /// sets, and clears the pending take name. ClearAll on its own leaves the tuned knobs and the
+    /// typed filename behind, which is not what "start over" means to someone staring at a bad run.
+    /// </summary>
+    [RelayCommand]
+    public void StartOver()
+    {
+        if (IsRecording)
+        {
+            // Abandon rather than finish: StopRecordingAsync would save the take we are about to
+            // discard. Stop() still has to run so the capture device is released.
+            IsRecording = false;
+            _ = _recorder.Stop();
+        }
+
+        ClearAll();
+        ResetSettings();
+        RecordingName = string.Empty;
     }
 
     public void Dispose()

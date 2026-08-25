@@ -36,6 +36,10 @@ public partial class CutoutTuning : ObservableObject
     [ObservableProperty]
     private double _headCutBias;
 
+    /// <summary>Crop to the head alone. On by default — the app is for head shots.</summary>
+    [ObservableProperty]
+    private bool _headOnly = true;
+
     public CutoutOptions ToOptions() => new()
     {
         Engine = CutoutEngine.OnnxU2Net,
@@ -46,6 +50,7 @@ public partial class CutoutTuning : ObservableObject
         AlphaMultiplier = 1.0,
         TrimPaddingPx = (int)CropPadding,
         HeadCutBiasPercent = (int)HeadCutBias,
+        HeadOnly = HeadOnly,
     };
 
     public void Reset()
@@ -56,5 +61,6 @@ public partial class CutoutTuning : ObservableObject
         FeatherRadius = 0;
         CropPadding = 24;
         HeadCutBias = 0;
+        HeadOnly = true;
     }
 }

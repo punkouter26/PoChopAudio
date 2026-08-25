@@ -27,4 +27,16 @@ public static partial class CutoutLog
     [LoggerMessage(EventId = 2004, Level = LogLevel.Information,
         Message = "Removed {Count} expired cutout job(s)")]
     public static partial void JobsExpired(ILogger logger, int count);
+
+    /// <summary>
+    /// Records how the head crop was decided. Without this the only evidence of a wrong crop is the
+    /// picture itself, which cannot tell you whether the face detector ran, found nothing, or was
+    /// overruled -- three different bugs that look identical on screen.
+    /// </summary>
+    [LoggerMessage(EventId = 2005, Level = LogLevel.Information,
+        Message = "Head crop {FileName}: source {SourceWidth}x{SourceHeight}, faceDetector={FaceAvailable}, " +
+                  "face={FaceBox}, chinRow={ChinRow}, result {ResultWidth}x{ResultHeight}")]
+    public static partial void HeadCrop(
+        ILogger logger, string fileName, int sourceWidth, int sourceHeight,
+        bool faceAvailable, string faceBox, string chinRow, int resultWidth, int resultHeight);
 }

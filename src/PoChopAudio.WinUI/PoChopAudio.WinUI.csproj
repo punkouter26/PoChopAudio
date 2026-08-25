@@ -13,7 +13,6 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Views\ChopPage.xaml;Views\ChopPage.xaml.cs</DefaultItemExcludes>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>

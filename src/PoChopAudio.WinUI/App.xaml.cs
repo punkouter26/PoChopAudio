@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using PoChopAudio.Services.Chop;
 using PoChopAudio.Services.Cutout;
@@ -32,7 +33,11 @@ public partial class App : Application
     {
         var services = new ServiceCollection();
 
-        services.AddLogging();
+        // Without a provider every log call was discarded, which left the image pipeline with no
+        // way to explain itself when a result looked wrong.
+        services.AddLogging(builder => builder
+            .SetMinimumLevel(LogLevel.Information)
+            .AddProvider(new FileLoggerProvider()));
 
         // The shared engine room, registered exactly as the API registers it. Running the same
         // ChopService and CutoutService in-process is what makes this app work with no server.
@@ -43,6 +48,10 @@ public partial class App : Application
             Path.Combine(AppContext.BaseDirectory, "Content", "Models", "u2netp.onnx")));
         services.AddSingleton<IBackgroundRemover, OnnxU2NetRemover>();
         services.AddSingleton<EnginePicker>();
+
+        // Face detection is a Windows API, so Services declares the interface and the app supplies
+        // the implementation. It degrades on its own if the OS component is missing.
+        services.AddSingleton<IFaceLocator, WindowsFaceLocator>();
         services.AddSingleton<CutoutService>();
 
         // Hardware / Media Services

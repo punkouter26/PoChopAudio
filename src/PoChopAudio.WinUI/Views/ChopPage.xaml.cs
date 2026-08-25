@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -18,11 +19,37 @@ public sealed partial class ChopPage : Page
         ViewModel = App.GetService<ChopViewModel>();
         InitializeComponent();
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // LevelMeter is driven imperatively rather than by binding -- it repaints a bar, a dB
+        // readout and a clip badge from one update. Nothing was calling UpdateLevel, so the meter
+        // sat at its -inf dB default for the whole take; this is what connects it to the recorder.
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         await ViewModel.InitializeAsync();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(ChopViewModel.PeakDb):
+            case nameof(ChopViewModel.RmsDb):
+            case nameof(ChopViewModel.IsClipping):
+                MicLevelMeter.UpdateLevel(ViewModel.PeakDb, ViewModel.RmsDb, ViewModel.IsClipping);
+                break;
+
+            case nameof(ChopViewModel.IsRecording) when !ViewModel.IsRecording:
+                MicLevelMeter.Reset();
+                break;
+        }
     }
 
     public int ExportNormalizeIndex
@@ -77,14 +104,6 @@ public sealed partial class ChopPage : Page
     private async void OnWaveformSegmentClicked(ChopFileItem item, ChopSegment? segment)
     {
         await ViewModel.PlayTakeAsync(item, segment);
-    }
-
-    private void OnFollowBatchClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: ChopFileItem item })
-        {
-            ViewModel.FollowBatch(item);
-        }
     }
 
     private async void OnResplitSingleFileClicked(object sender, RoutedEventArgs e)

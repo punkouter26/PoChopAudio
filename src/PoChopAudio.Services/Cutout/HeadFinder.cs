@@ -18,11 +18,31 @@ public sealed record HeadBounds(int X, int Y, int Width, int Height, bool Empty)
 /// </summary>
 public static class HeadFinder
 {
-    /// <summary>The neck must be at least this much narrower than the head to count as a neck.</summary>
-    private const double NeckNarrowing = 0.75;
+    /// <summary>
+    /// The neck must be at least this much narrower than the head to count as a neck.
+    ///
+    /// Was 0.75, which demanded the neck be a full 25% narrower than the head. That is true of a
+    /// bare neck and false of almost every real head shot: a crew neck, a collar, a hood or long
+    /// hair fills the gap, the mask never narrows that far, and detection fell off a cliff into the
+    /// no-neck fallback -- which kept the entire torso. 0.90 catches a partially hidden neck while
+    /// still needing a real narrowing rather than noise.
+    /// </summary>
+    private const double NeckNarrowing = 0.90;
 
     /// <summary>Below the neck, the mask must widen by this much again for it to be shoulders.</summary>
-    private const double ShoulderFlare = 1.25;
+    private const double ShoulderFlare = 1.12;
+
+    /// <summary>
+    /// A head is roughly this many times taller than it is wide, hair included. Used only when no
+    /// neck can be found at all, to tell a head-and-torso apart from a genuine head-only photo.
+    /// </summary>
+    private const double HeadAspect = 1.35;
+
+    /// <summary>Fraction of the subject, from the top, that is crown no matter how it is framed.</summary>
+    private const double CrownFraction = 0.12;
+
+    /// <summary>A row wider than this multiple of the crown is shoulder, not head.</summary>
+    private const double ShoulderRejection = 1.45;
 
     /// <summary>Alpha at or below this is background.</summary>
     private const byte Opaque = 8;
@@ -38,7 +58,13 @@ public static class HeadFinder
     /// Shifts the neck cut up (negative) or down (positive) by this percentage of the subject's
     /// height. Zero uses the detected neck as-is.
     /// </param>
-    public static HeadBounds Find(byte[] rgba, int width, int height, int paddingPx, int cutBiasPercent)
+    /// <param name="faceChinRow">
+    /// Chin row from a real face detection, when the host has one. Supplying it replaces the
+    /// mask-shape inference entirely: a measured chin beats a guessed neck, and it is the only
+    /// thing that is reliable when a collar hides the neck. Null falls back to the shape logic.
+    /// </param>
+    public static HeadBounds Find(
+        byte[] rgba, int width, int height, int paddingPx, int cutBiasPercent, int? faceChinRow = null)
     {
         ArgumentNullException.ThrowIfNull(rgba);
 
@@ -80,7 +106,9 @@ public static class HeadFinder
             return new HeadBounds(0, 0, width, height, Empty: true);
         }
 
-        var cut = NeckRow(widths, top, bottom);
+        var cut = faceChinRow is { } chin
+            ? Math.Clamp(chin, top, bottom)
+            : NeckRow(widths, top, bottom);
 
         if (cutBiasPercent != 0)
         {
@@ -142,8 +170,12 @@ public static class HeadFinder
 
         if (peakWidth <= 0 || y > bottom)
         {
-            // Never narrowed: a head on its own. Keep all of it.
-            return bottom;
+            // Never narrowed. That used to be read as "a head on its own, keep all of it", which is
+            // only half right -- it is equally what a head sitting on covered shoulders looks like,
+            // and that reading returned the whole torso. Decide by proportion instead: measure the
+            // head where it is unambiguous (the top of the subject) and see whether the subject is
+            // taller than a head of that width could be.
+            return ProportionalHeadCut(widths, top, bottom);
         }
 
         // Phase 2 — follow the narrowing down to the neck, then stop at the first row that flares
@@ -167,6 +199,51 @@ public static class HeadFinder
         }
 
         return troughRow;
+    }
+
+    /// <summary>
+    /// Last head row inferred from proportion alone, for masks with no detectable neck.
+    ///
+    /// The head's width is taken from the top <see cref="HeadTopFraction"/> of the subject, which is
+    /// skull and hair in any framing and never shoulders. A head is about
+    /// <see cref="HeadAspect"/> times taller than that width, so anything below that line is body.
+    /// When the estimate reaches the bottom of the mask the subject really was head-only, and the
+    /// full height is kept -- the same outcome the old fallback gave, but now for a checked reason.
+    /// </summary>
+    private static int ProportionalHeadCut(int[] widths, int top, int bottom)
+    {
+        var span = bottom - top + 1;
+
+        // Pass 1 -- the crown. A narrow window right at the top of the subject is skull and hair in
+        // any framing, so it gives a head width that cannot be contaminated by shoulders.
+        var crownEnd = Math.Min(bottom, top + Math.Max(1, (int)(span * CrownFraction)) - 1);
+        var crownWidth = 0;
+        for (var y = top; y <= crownEnd; y++)
+        {
+            if (widths[y] > crownWidth) crownWidth = widths[y];
+        }
+
+        if (crownWidth <= 0)
+        {
+            return bottom;
+        }
+
+        // Pass 2 -- widen the estimate over the head's likely extent, but ignore any row that has
+        // already flared well past the crown. Without that guard this window reaches the shoulders
+        // whenever the subject is mostly torso, and a shoulder-width "head" projects a cut below
+        // the bottom of the image -- which silently returned the entire body.
+        var searchEnd = Math.Min(bottom, top + (int)(crownWidth * HeadAspect));
+        var headWidth = crownWidth;
+        for (var y = top; y <= searchEnd; y++)
+        {
+            if (widths[y] > headWidth && widths[y] <= crownWidth * ShoulderRejection)
+            {
+                headWidth = widths[y];
+            }
+        }
+
+        var estimated = top + (int)(headWidth * HeadAspect);
+        return estimated >= bottom ? bottom : estimated;
     }
 
     /// <summary>Copies the head rectangle out of an RGBA buffer.</summary>

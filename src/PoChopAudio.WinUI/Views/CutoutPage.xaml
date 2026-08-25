@@ -63,6 +63,15 @@
                       Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                 <StackPanel Spacing="12">
 
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.Tuning.HeadOnly, Mode=TwoWay}"
+                                      OnContent="Head only" OffContent="Whole subject"
+                                      MinWidth="0" VerticalAlignment="Center" />
+                        <TextBlock VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Crops off the neck, shoulders and body. Turn off to keep everything." />
+                    </StackPanel>
+
                     <controls:WrapPanel ItemWidth="260" ItemHeight="66" HorizontalSpacing="16" VerticalSpacing="8">
 
                         <StackPanel Spacing="2">

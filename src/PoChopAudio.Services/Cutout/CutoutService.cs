@@ -14,7 +14,13 @@ public sealed record CutoutPhoto(byte[] Png, int Width, int Height, CutoutEngine
 /// to refer back to. In-process there is nothing to refer back to: the caller already holds the
 /// bytes, so the job store, its 2 h expiry and its temp directory were pure ceremony.
 /// </summary>
-public sealed class CutoutService(EnginePicker picker, ILoggerFactory loggerFactory)
+/// <param name="faceLocator">
+/// Optional platform face detection. When the host registers one, a measured chin replaces
+/// HeadFinder's inference of where the neck is; when it is null or reports itself unavailable,
+/// the mask-shape logic runs exactly as before.
+/// </param>
+public sealed class CutoutService(
+    EnginePicker picker, ILoggerFactory loggerFactory, IFaceLocator? faceLocator = null)
 {
     private readonly ILogger _logger = CutoutLog.CreateLogger(loggerFactory);
 
@@ -83,6 +89,17 @@ public sealed class CutoutService(EnginePicker picker, ILoggerFactory loggerFact
             var mask = await engine.RemoveAsync(decoded.Rgba, decoded.Width, decoded.Height, cancellationToken)
                 .ConfigureAwait(false);
 
+            // Run against the original pixels, not the mask: the detector needs a real face, and it
+            // has to happen out here because it is async while the crop below is not.
+            var face = opts.HeadOnly
+                ? await LocateFaceAsync(decoded.Rgba, decoded.Width, decoded.Height, cancellationToken)
+                    .ConfigureAwait(false)
+                : null;
+
+            var chinRow = face is { } f
+                ? Math.Clamp(f.Bottom + (int)(f.Height * ChinMargin), 0, decoded.Height - 1)
+                : (int?)null;
+
             return await Task.Run(
                 () =>
                 {
@@ -92,14 +109,25 @@ public sealed class CutoutService(EnginePicker picker, ILoggerFactory loggerFact
                     var width = decoded.Width;
                     var height = decoded.Height;
 
-                    var head = HeadFinder.Find(
-                        processed, decoded.Width, decoded.Height, opts.TrimPaddingPx, opts.HeadCutBiasPercent);
-                    if (!head.Empty)
+                    if (opts.HeadOnly)
                     {
-                        rgba = HeadFinder.Crop(processed, decoded.Width, head);
-                        width = head.Width;
-                        height = head.Height;
+                        var head = HeadFinder.Find(
+                            processed, decoded.Width, decoded.Height,
+                            opts.TrimPaddingPx, opts.HeadCutBiasPercent, chinRow);
+                        if (!head.Empty)
+                        {
+                            rgba = HeadFinder.Crop(processed, decoded.Width, head);
+                            width = head.Width;
+                            height = head.Height;
+                        }
                     }
+
+                    CutoutLog.HeadCrop(
+                        _logger, fileName, decoded.Width, decoded.Height,
+                        faceLocator is { IsAvailable: true },
+                        face?.ToString() ?? "none",
+                        chinRow?.ToString() ?? "none",
+                        width, height);
 
                     var png = ImageDecoder.EncodePng(rgba, width, height);
                     CutoutLog.Cutout(_logger, fileName, engine.Engine, width, height, png.Length);
@@ -115,6 +143,27 @@ public sealed class CutoutService(EnginePicker picker, ILoggerFactory loggerFact
                 $"Could not cut out '{fileName}'. It may be corrupt or use an unsupported codec.");
         }
     }
+
+    /// <summary>
+    /// Chin row for the head cut, or null to let HeadFinder infer it from the mask shape.
+    ///
+    /// A detected face box covers brow to chin, so its bottom edge is the chin. A little is added
+    /// below it because a crop that lands exactly on the chin looks decapitated -- the jawline needs
+    /// somewhere to sit.
+    /// </summary>
+    private async Task<FaceBox?> LocateFaceAsync(
+        byte[] rgba, int width, int height, CancellationToken cancellationToken)
+    {
+        if (faceLocator is not { IsAvailable: true })
+        {
+            return null;
+        }
+
+        return await faceLocator.LocateAsync(rgba, width, height, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Extra room below the detected chin, as a fraction of face height.</summary>
+    private const double ChinMargin = 0.18;
 
     /// <summary>Field-keyed errors for the edge knobs, empty when they are usable.</summary>
     internal static Dictionary<string, string[]> Validate(CutoutOptions options)

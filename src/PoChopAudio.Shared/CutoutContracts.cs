@@ -58,6 +58,13 @@ public sealed record CutoutOptions
     /// beard makes the automatic choice land wrong.
     /// </summary>
     public int HeadCutBiasPercent { get; init; }
+
+    /// <summary>
+    /// Crop the result to the head alone, dropping neck, shoulders and torso. On by default: the
+    /// app exists to make head shots, and u2netp is a saliency model that always returns the whole
+    /// person. Turn off to keep everything the background removal left behind.
+    /// </summary>
+    public bool HeadOnly { get; init; } = true;
 }
 
 /// <summary>Result of decoding an image upload: enough to draw a preview and decide settings.</summary>

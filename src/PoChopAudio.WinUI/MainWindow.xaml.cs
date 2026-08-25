@@ -11,11 +11,9 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         WindowHelper.TrySetMicaBackdrop(this);
-        WindowHelper.SetWindowSize(this, 1280, 840);
+        WindowHelper.SetWindowSizeToWorkAreaFraction(this, 0.82, 0.88);
 
-        // Open on Cutout Studio. ChopPage is still excluded from compilation, so selecting the
-        // first item landed the user on the Health fallback instead of anything they asked for.
-        SelectNavItem("Cutout");
+        SelectNavItem("Chop");
     }
 
     private void OnNavItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
@@ -42,9 +40,11 @@ public sealed partial class MainWindow : Window
 
     private void NavigateTo(string tag)
     {
-        // Cutout Studio is the only page that exists; ChopPage is still excluded from the build.
-        Type pageType = typeof(CutoutPage);
-        _ = tag;
+        Type pageType = tag switch
+        {
+            "Cutout" => typeof(CutoutPage),
+            _ => typeof(ChopPage),
+        };
 
         if (ContentFrame.CurrentSourcePageType != pageType)
         {

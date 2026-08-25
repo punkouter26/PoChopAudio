@@ -1,6 +1,6 @@
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Cutout;
+namespace PoChopAudio.Services.Cutout;
 
 /// <summary>
 /// Crops an RGBA buffer to the alpha-channel bounding box, with optional padding. Returns the

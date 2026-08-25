@@ -1,6 +1,6 @@
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>
 /// Trims leading and trailing silence from a decoded audio envelope. The "silence" threshold is

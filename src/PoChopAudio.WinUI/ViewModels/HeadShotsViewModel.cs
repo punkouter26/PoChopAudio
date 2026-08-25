@@ -141,7 +141,7 @@ public partial class HeadShotsViewModel : ObservableObject
                 {
                     try
                     {
-                        var cutoutBytes = await _localCutout.RemoveBackgroundAndCropHeadAsync(photoBytes, _cts.Token);
+                        var cutoutBytes = (await _localCutout.ProcessHeadshotAsync(photoBytes, _cts.Token)).CutoutPng;
                         item.CutoutPngBytes = cutoutBytes;
 
                         // Get dimensions using ImageSharp metadata

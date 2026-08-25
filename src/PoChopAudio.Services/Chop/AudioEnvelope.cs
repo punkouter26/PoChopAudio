@@ -1,4 +1,4 @@
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>
 /// A recording reduced to what the detector and the waveform view need: one loudness reading per

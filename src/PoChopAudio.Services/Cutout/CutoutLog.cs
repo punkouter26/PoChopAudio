@@ -1,6 +1,7 @@
+using Microsoft.Extensions.Logging;
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Cutout;
+namespace PoChopAudio.Services.Cutout;
 
 /// <summary>Source-generated log methods — the cutout path runs once per image.</summary>
 public static partial class CutoutLog

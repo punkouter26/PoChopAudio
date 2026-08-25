@@ -7,7 +7,7 @@ using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
-namespace PoChopAudio.API.Features.Cutout;
+namespace PoChopAudio.Services.Cutout;
 
 /// <summary>
 /// Decodes an uploaded image into raw RGBA bytes, EXIF-auto-rotated, with the Pixel Motion Photo

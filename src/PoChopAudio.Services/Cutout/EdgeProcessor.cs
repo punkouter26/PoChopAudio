@@ -1,6 +1,6 @@
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Cutout;
+namespace PoChopAudio.Services.Cutout;
 
 /// <summary>
 /// Post-processes a raw RGBA cutout. The mask lives in the alpha channel; RGB is preserved

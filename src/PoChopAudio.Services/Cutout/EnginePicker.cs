@@ -1,6 +1,7 @@
+using Microsoft.Extensions.Logging;
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Cutout;
+namespace PoChopAudio.Services.Cutout;
 
 /// <summary>
 /// Resolves a <see cref="CutoutEngine"/> to its registered <see cref="IBackgroundRemover"/>. The

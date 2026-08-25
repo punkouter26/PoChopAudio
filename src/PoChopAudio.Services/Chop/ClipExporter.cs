@@ -2,7 +2,7 @@ using System.IO.Compression;
 using NAudio.Wave;
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>
 /// Cuts clips out of a job's canonical WAV and writes them as 16-bit PCM WAV.

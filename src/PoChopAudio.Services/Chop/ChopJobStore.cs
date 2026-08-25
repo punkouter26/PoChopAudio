@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>One uploaded recording, its decoded audio on disk, and the latest split of it.</summary>
 public sealed class ChopJob
@@ -136,26 +136,6 @@ public sealed class ChopJobStore : IDisposable
         }
         catch (UnauthorizedAccessException)
         {
-        }
-    }
-}
-
-/// <summary>Sweeps abandoned jobs so a long-running instance does not fill the temp drive.</summary>
-public sealed class ChopJobCleanup(ChopJobStore store, ILogger<ChopJobCleanup> logger) : BackgroundService
-{
-    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(10);
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(Interval);
-
-        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-        {
-            var removed = store.RemoveExpired(DateTimeOffset.UtcNow);
-            if (removed > 0)
-            {
-                ChopLog.JobsExpired(logger, removed);
-            }
         }
     }
 }

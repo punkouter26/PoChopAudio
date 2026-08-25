@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Http.Features;
 using PoChopAudio.API.Features.Archive;
 using PoChopAudio.API.Features.Chop;
 using PoChopAudio.API.Features.Cutout;
-using PoChopAudio.API.Features.Cutout.Engines;
+using PoChopAudio.Services.Chop;
+using PoChopAudio.Services.Cutout;
+using PoChopAudio.Services.Cutout.Engines;
 using PoChopAudio.API.Features.Diagnostics;
 using PoChopAudio.API.Storage;
 using PoChopAudio.Shared;
@@ -16,6 +18,8 @@ builder.Services.AddHostedService<ChopJobCleanup>();
 
 builder.Services.AddSingleton<CutoutJobStore>();
 builder.Services.AddHostedService<CutoutJobCleanup>();
+builder.Services.AddSingleton(new CutoutModelOptions(
+    Path.Combine(builder.Environment.ContentRootPath, "Content", "Models", "u2netp.onnx")));
 builder.Services.AddSingleton<IBackgroundRemover, OnnxU2NetRemover>();
 builder.Services.AddSingleton<EnginePicker>();
 

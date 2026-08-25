@@ -1,4 +1,5 @@
-namespace PoChopAudio.API.Features.Chop;
+using Microsoft.Extensions.Logging;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>Source-generated log methods — the upload path runs per request and per frame of audio.</summary>
 public static partial class ChopLog

@@ -1,4 +1,4 @@
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>One direct-form-I biquad section, held per channel so state never leaks between them.</summary>
 public sealed class Biquad(double b0, double b1, double b2, double a1, double a2)

@@ -1,6 +1,6 @@
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>What a measuring pass found, and what the writing pass should therefore do.</summary>
 /// <param name="MeasuredDb">Level found by the chosen mode, in dBFS or LUFS. -Infinity for silence.</param>

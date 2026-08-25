@@ -528,14 +528,6 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         ExportKnobs = new ExportKnobsModel();
     }
 
-    private void NotifyCountProperties()
-    {
-        OnPropertyChanged(nameof(TotalClips));
-        OnPropertyChanged(nameof(ReadyCount));
-        OnPropertyChanged(nameof(AttentionCount));
-        OnPropertyChanged(nameof(UntunedCount));
-    }
-
     public void Dispose()
     {
         _cts.Cancel();

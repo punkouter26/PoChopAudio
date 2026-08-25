@@ -1,7 +1,7 @@
 using NAudio.Wave;
 using NLayer.NAudioSupport;
 
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>
 /// Decodes an upload once into a canonical 32-bit float WAV and, in the same pass, the loudness

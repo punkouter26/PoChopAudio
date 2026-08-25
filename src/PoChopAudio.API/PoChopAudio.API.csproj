@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PoChopAudio.Client\PoChopAudio.Client.csproj" />
     <ProjectReference Include="..\PoChopAudio.Shared\PoChopAudio.Shared.csproj" />
+    <ProjectReference Include="..\PoChopAudio.Services\PoChopAudio.Services.csproj" />
   </ItemGroup>
 
 </Project>

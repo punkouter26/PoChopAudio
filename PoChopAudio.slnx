@@ -3,6 +3,7 @@
     <Project Path="src/PoChopAudio.API/PoChopAudio.API.csproj" />
     <Project Path="src/PoChopAudio.Client/PoChopAudio.Client.csproj" />
     <Project Path="src/PoChopAudio.Shared/PoChopAudio.Shared.csproj" />
+    <Project Path="src/PoChopAudio.Services/PoChopAudio.Services.csproj" />
     <Project Path="src/PoChopAudio.WinUI/PoChopAudio.WinUI.csproj" />
   </Folder>
   <Folder Name="/tests/">

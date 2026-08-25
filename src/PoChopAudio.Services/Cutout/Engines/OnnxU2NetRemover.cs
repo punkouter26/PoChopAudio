@@ -1,8 +1,9 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Cutout.Engines;
+namespace PoChopAudio.Services.Cutout.Engines;
 
 /// <summary>
 /// On-device background removal using the u2netp ONNX model. The model is a single forward pass
@@ -25,10 +26,10 @@ public sealed class OnnxU2NetRemover : IBackgroundRemover, IDisposable
     private readonly ILogger<OnnxU2NetRemover> _logger;
     private readonly Lazy<InferenceSession?> _session;
 
-    public OnnxU2NetRemover(IHostEnvironment env, ILogger<OnnxU2NetRemover> logger)
+    public OnnxU2NetRemover(CutoutModelOptions options, ILogger<OnnxU2NetRemover> logger)
     {
         _logger = logger;
-        _modelPath = Path.Combine(env.ContentRootPath, "Content", "Models", "u2netp.onnx");
+        _modelPath = options.ModelPath;
         _session = new Lazy<InferenceSession?>(CreateSession, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 

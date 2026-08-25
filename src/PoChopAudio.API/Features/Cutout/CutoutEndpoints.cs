@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using PoChopAudio.Shared;
+using PoChopAudio.Services.Cutout;
 
 namespace PoChopAudio.API.Features.Cutout;
 

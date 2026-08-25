@@ -12,7 +12,6 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         WindowHelper.TrySetMicaBackdrop(this);
         WindowHelper.SetWindowSize(this, 1280, 840);
-        WindowHelper.SetIcon(this, "Assets/Square44x44Logo.png");
 
         NavView.SelectedItem = NavView.MenuItems[0];
         NavigateTo("Chop");

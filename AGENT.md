@@ -8,17 +8,29 @@ Governance lives in [NET_RULES.md](NET_RULES.md); this file records what was act
 ## Shape
 
 ```
+src/PoChopAudio.Services/     Host-agnostic engine room. No ASP.NET, no UI. Referenced by
+                              the API and (in progress) the WinUI desktop client.
+  Chop/AudioDecoder           Decode to canonical WAV; MediaFoundation codecs are Windows-only
+  Chop/SegmentDetector        The split algorithm (gate sweep, widest agreeing band)
+  Chop/SilenceTrimmer         Leading/trailing silence trim, in frames
+  Chop/ClipExporter           WAV slicing, UniqueStems, two-pass normalized export, ZIP
+  Chop/LoudnessMeter          ITU-R BS.1770-4 K-weighting + gated integrated loudness
+  Chop/ClipProcessor          Export maths: gain decision and fade curve, no I/O
+  Chop/ChopJobStore           Temp-dir job scratch space, 2 h TTL
+  Cutout/ImageDecoder         JPEG/PNG/WebP decode, EXIF auto-rotate, MP.jpg trailer strip
+  Cutout/EdgeProcessor        Mask threshold, morphology, feather, alpha multiplier
+  Cutout/Engines/OnnxU2NetRemover  u2netp ONNX model, in-process
+  Cutout/CutoutModelOptions   Injected path to u2netp.onnx — the reason the engine needs no host
+  Cutout/CutoutJobStore       Same temp-dir / 2 h TTL pattern as ChopJobStore
 src/PoChopAudio.API/          Minimal API + BFF host; serves the Blazor client
-  Features/Chop/              The whole splitting feature (endpoints, DTO wiring, DSP, storage)
-    LoudnessMeter             ITU-R BS.1770-4 K-weighting + gated integrated loudness
-    ClipProcessor             Export maths: gain decision and fade curve, no I/O
+  Features/Chop/              HTTP surface over Services.Chop
+    ChopEndpoints             /api/chop/{upload, capabilities, analyze, clips, clips.zip}
     ChopExportQuery           Binds the export knobs off the download URL's query string
-  Features/Cutout/            Image background-removal feature
-    ImageDecoder              JPEG/PNG/WebP decode, EXIF auto-rotate, MP.jpg trailer strip
-    EdgeProcessor             Mask threshold, morphology, feather, alpha multiplier
-    Engines/OnnxU2NetRemover  u2netp ONNX model, in-process
-    CutoutJobStore            Same temp-dir / 2 h TTL pattern as ChopJobStore
+    ChopJobCleanup            BackgroundService sweeping expired jobs (host infrastructure)
+  Features/Cutout/            HTTP surface over Services.Cutout
     CutoutEndpoints           /api/cutout/{upload, capabilities, analyze, image, images.zip}
+                              plus /model and /progress, which exist only for the browser client
+    CutoutJobCleanup          BackgroundService sweeping expired jobs (host infrastructure)
   Features/Diagnostics/       /health and /diag
   Features/Archive/           Batch metadata persisted to Azurite (best-effort, non-blocking)
     AzuriteBlobStore           Thin wrapper over the blob container; swallows errors when
@@ -43,7 +55,8 @@ src/PoChopAudio.Client/       Blazor WASM UI
   Services/CutoutClient.cs   Typed HttpClient for /api/cutout
   Services/BrowserOnnxRemover Client-side ONNX runtime (when no server engine is available)
   wwwroot/js/cutout.js       onnxruntime-web + u2netp in the browser via JS interop
-src/PoChopAudio.Shared/       Contracts shared by both: JobId, ChopLimits, ChopOptions, results
+src/PoChopAudio.WinUI/        WinUI 3 desktop client (unpackaged, self-contained WinAppSDK)
+src/PoChopAudio.Shared/       Contracts shared by all: JobId, ChopLimits, ChopOptions, results
                               plus CutoutLimits, CutoutEngine, IBackgroundRemover, CutoutOptions
 tests/PoChopAudio.Unit/       SegmentDetector, ClipExporter, ImageDecoder, EdgeProcessor, CutoutExporter
 tests/PoChopAudio.Integration/  Full HTTP pipeline with WebApplicationFactory<Program>
@@ -253,9 +266,14 @@ free, picked per batch via the API picker:
 | `OnnxU2Net` | Server (Microsoft.ML.OnnxRuntime + u2netp.onnx) | Good for portraits | Free |
 | `BrowserOnnx` | Browser (onnxruntime-web + u2netp.onnx via JS interop) | Same | Free, no upload of raw pixels |
 
-`IBackgroundRemover` lives in `PoChopAudio.Shared`; the API registers one implementation per
+`IBackgroundRemover` lives in `PoChopAudio.Shared`; the host registers one implementation per
 engine, and the `EnginePicker` exposes only the available ones through `/api/cutout/capabilities`.
 The UI then offers exactly that picker.
+
+`OnnxU2NetRemover` takes its model path from an injected `CutoutModelOptions` rather than reading
+`IHostEnvironment.ContentRootPath`. That is what lets the engine live in `PoChopAudio.Services`
+with no host dependency: the API resolves the path under its content root, and a desktop host
+resolves it next to the executable. A missing file still leaves the engine simply unavailable.
 
 The pipeline is decode-once, process-once, encode-once:
 

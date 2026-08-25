@@ -1,6 +1,6 @@
 using System.Reflection;
-using PoChopAudio.API.Features.Chop;
-using PoChopAudio.API.Features.Cutout;
+using PoChopAudio.Services.Chop;
+using PoChopAudio.Services.Cutout;
 using PoChopAudio.Shared;
 
 namespace PoChopAudio.API.Features.Diagnostics;

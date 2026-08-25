@@ -1,6 +1,6 @@
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Chop;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>
 /// Splits a recording of repeated takes into one clip per take.

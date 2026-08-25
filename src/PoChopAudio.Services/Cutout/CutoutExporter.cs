@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using PoChopAudio.Shared;
 
-namespace PoChopAudio.API.Features.Cutout;
+namespace PoChopAudio.Services.Cutout;
 
 /// <summary>Writes the cutout PNG bytes for one job, either as a single image or a flat ZIP.</summary>
 public static class CutoutExporter

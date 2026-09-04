@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PoChopAudio.Services.Dsp;
 using PoChopAudio.Shared;
 
 namespace PoChopAudio.Services.Chop;
@@ -128,6 +129,55 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
         ChopLog.Analyzed(_logger, job.Id.ToString(), result.Segments.Count, result.ThresholdDb);
 
         return Outcome<AnalysisResult>.Ok(result);
+    }
+
+    /// <summary>
+    /// Builds a spectrogram of the whole recording.
+    ///
+    /// <para>
+    /// Reads the canonical WAV rather than the envelope: the envelope is one loudness figure per
+    /// 10 ms frame, which is everything detection needs and nothing a frequency view can use. The
+    /// samples are downmixed to mono on the way through, because a spectrogram of a stereo take
+    /// showing two near-identical panels answers no question anyone asked.
+    /// </para>
+    /// <para>
+    /// Synchronous like the rest of this class, so the caller decides which thread pays for it —
+    /// this is firmly in the "call it through Task.Run or the window freezes" category.
+    /// </para>
+    /// </summary>
+    public Outcome<SpectrogramData> GetSpectrogram(string? jobId, int columns, int bins)
+    {
+        if (columns < 1 || bins < 1)
+        {
+            return Outcome<SpectrogramData>.Invalid(nameof(columns), "Columns and bins must both be at least 1.");
+        }
+
+        if (store.Find(jobId) is not { Envelope: { } envelope } job)
+        {
+            return Outcome<SpectrogramData>.NotFound(NotFoundMessage);
+        }
+
+        if (!File.Exists(job.CanonicalPath))
+        {
+            return Outcome<SpectrogramData>.NotFound(NotFoundMessage);
+        }
+
+        try
+        {
+            var mono = ClipExporter.ReadMono(job.CanonicalPath);
+
+            return mono.Length == 0
+                ? Outcome<SpectrogramData>.Empty("That recording holds no audio.")
+                : Outcome<SpectrogramData>.Ok(Spectrogram.Build(mono, envelope.SampleRate, columns, bins));
+        }
+        catch (IOException exception)
+        {
+            return Outcome<SpectrogramData>.Undecodable(exception.Message);
+        }
+        catch (InvalidDataException exception)
+        {
+            return Outcome<SpectrogramData>.Undecodable(exception.Message);
+        }
     }
 
     /// <summary>Renders one take as a WAV file.</summary>

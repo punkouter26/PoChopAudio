@@ -26,6 +26,51 @@ public static class ClipExporter
         return RenderClip(reader, segment, export);
     }
 
+    /// <summary>
+    /// Reads the whole canonical WAV as mono samples, averaging channels.
+    ///
+    /// <para>
+    /// Streams through a fixed buffer rather than calling <c>ToArray</c> on the reader: a 43-minute
+    /// recording is roughly 250 MB of 32-bit float per channel, and the point of the canonical file
+    /// living on disk is that the app never has to hold two copies of that in managed memory. The
+    /// mono result is a quarter the size of a stereo float pair and is what every analysis view
+    /// actually wants.
+    /// </para>
+    /// </summary>
+    public static float[] ReadMono(string canonicalPath)
+    {
+        using var reader = new WaveFileReader(canonicalPath);
+        var samples = reader.ToSampleProvider();
+        var channels = samples.WaveFormat.Channels;
+
+        if (channels < 1)
+        {
+            return [];
+        }
+
+        var totalFrames = (int)Math.Min(int.MaxValue, reader.SampleCount);
+        var mono = new float[Math.Max(0, totalFrames)];
+        var buffer = new float[channels * 4096];
+        var written = 0;
+
+        int read;
+        while ((read = samples.Read(buffer, 0, buffer.Length)) > 0 && written < mono.Length)
+        {
+            for (var i = 0; i + channels <= read && written < mono.Length; i += channels)
+            {
+                var sum = 0f;
+                for (var c = 0; c < channels; c++)
+                {
+                    sum += buffer[i + c];
+                }
+
+                mono[written++] = sum / channels;
+            }
+        }
+
+        return written == mono.Length ? mono : mono[..written];
+    }
+
     public static byte[] RenderZip(ChopJob job) => RenderZip(job, ExportOptions.PassThrough);
 
     public static byte[] RenderZip(ChopJob job, ExportOptions export)

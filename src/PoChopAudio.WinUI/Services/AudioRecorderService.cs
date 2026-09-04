@@ -16,8 +16,23 @@ public sealed class AudioRecorderService : IDisposable
 
     public bool IsRecording { get; private set; }
 
+    /// <summary>How many envelope points each captured buffer is reduced to for the live scope.</summary>
+    private const int ScopePointsPerBuffer = 48;
+
     public event Action<double, double, bool>? LevelUpdated;
     public event Action<TimeSpan>? ElapsedUpdated;
+
+    /// <summary>
+    /// A decimated peak envelope of the buffer just captured, for the live scope.
+    ///
+    /// <para>
+    /// Decimated here rather than in the control, because the alternative is handing roughly 1100
+    /// samples per 25 ms buffer across a thread boundary forty times a second to draw a few dozen
+    /// pixels. Peak within each window rather than mean: a scope that averages away transients is
+    /// exactly the wrong instrument for spotting a clipped consonant.
+    /// </para>
+    /// </summary>
+    public event Action<float[]>? ScopeSamplesAvailable;
 
     public void Start(int sampleRate = 44100, int channels = 1)
     {
@@ -84,6 +99,33 @@ public sealed class AudioRecorderService : IDisposable
             _isClipping = _isClipping || clipping;
 
             LevelUpdated?.Invoke(peakDb, rmsDb, _isClipping);
+
+            if (ScopeSamplesAvailable is { } scope && sampleCount > 0)
+            {
+                var points = new float[ScopePointsPerBuffer];
+                var perPoint = Math.Max(1, sampleCount / ScopePointsPerBuffer);
+
+                for (var p = 0; p < ScopePointsPerBuffer; p++)
+                {
+                    var peak = 0f;
+
+                    for (var k = 0; k < perPoint; k++)
+                    {
+                        var index = ((p * perPoint) + k) * 2;
+                        if (index + 1 >= e.BytesRecorded)
+                        {
+                            break;
+                        }
+
+                        var sample = (short)(e.Buffer[index] | (e.Buffer[index + 1] << 8));
+                        peak = Math.Max(peak, Math.Abs(sample / 32768f));
+                    }
+
+                    points[p] = peak;
+                }
+
+                scope(points);
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using PoChopAudio.Services.Dsp;
 using PoChopAudio.Shared;
 
 namespace PoChopAudio.WinUI.Models;
@@ -86,6 +87,27 @@ public partial class ChopFileItem : ObservableObject
 
     [ObservableProperty]
     private double _playheadRatio;
+
+    /// <summary>
+    /// Frequency view, computed on demand. Null until the user asks for it: building one reads the
+    /// whole canonical WAV back off disk and runs a few hundred FFTs, which is not work to do for
+    /// every file in a batch on the chance that someone looks.
+    /// </summary>
+    [ObservableProperty]
+    private SpectrogramData? _spectrogram;
+
+    /// <summary>Whether this card is showing frequency rather than amplitude.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ViewModeGlyph))]
+    [NotifyPropertyChangedFor(nameof(ViewModeLabel))]
+    private bool _showSpectrogram;
+
+    [ObservableProperty]
+    private bool _isBuildingSpectrogram;
+
+    public string ViewModeGlyph => ShowSpectrogram ? "" : "";
+
+    public string ViewModeLabel => ShowSpectrogram ? "Show waveform" : "Show frequencies";
 
     public bool IsReady => Status == ItemProcessingStatus.Ready && Segments.Count > 0;
 

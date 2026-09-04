@@ -5,9 +5,12 @@
     xmlns:shapes="using:Microsoft.UI.Xaml.Shapes"
     SizeChanged="OnSizeChanged">
 
-    <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+    <Border x:Name="RootBorder"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="1" CornerRadius="6" Height="140" Padding="0">
+            BorderThickness="1" CornerRadius="6" Height="140" Padding="0"
+            AutomationProperties.Name="Waveform"
+            AutomationProperties.HelpText="Shows the whole recording with each detected sound highlighted. Click a highlighted band to play that sound.">
         <Grid x:Name="RootGrid">
             <!-- Background Canvas for take segment highlight rectangles -->
             <Canvas x:Name="SegmentsCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />

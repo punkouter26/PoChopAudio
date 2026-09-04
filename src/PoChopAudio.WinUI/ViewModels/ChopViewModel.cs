@@ -18,15 +18,18 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     private readonly ChopService _chop;
     private readonly AudioRecorderService _recorder;
     private readonly AudioPlayerService _player;
+    private readonly AppSettingsService _settings;
     private readonly Debouncer _debouncer = new(TimeSpan.FromMilliseconds(350));
     private readonly DispatcherQueue? _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource _cts = new();
 
-    public ChopViewModel(ChopService chop, AudioRecorderService recorder, AudioPlayerService player)
+    public ChopViewModel(
+        ChopService chop, AudioRecorderService recorder, AudioPlayerService player, AppSettingsService settings)
     {
         _chop = chop;
         _recorder = recorder;
         _player = player;
+        _settings = settings;
 
         // Every callback below arrives on a background thread -- LevelUpdated on NAudio's capture
         // thread, ElapsedUpdated on a System.Timers.Timer thread, and the player's on its own.
@@ -499,7 +502,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         var ready = Files.Where(f => f.IsReady).ToList();
         if (ready.Count == 0) return;
 
-        var folderPath = await ExportService.PickFolderAsync(window);
+        var folderPath = await ExportService.ResolveBatchFolderAsync(window, _settings);
         if (string.IsNullOrEmpty(folderPath)) return;
 
         IsBusy = true;

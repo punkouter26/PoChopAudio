@@ -32,7 +32,16 @@ public sealed class ChopJobStore : IDisposable
 {
     public static readonly TimeSpan Lifetime = TimeSpan.FromHours(2);
 
+    /// <summary>
+    /// Held open with <see cref="FileShare.None"/> for as long as the store lives, so another
+    /// instance can tell "in use" from "left behind by a process that died" without guessing from
+    /// timestamps. <see cref="FileOptions.DeleteOnClose"/> makes Windows drop it even on a crash,
+    /// which is exactly when the distinction matters.
+    /// </summary>
+    private const string LockFileName = ".inuse";
+
     private readonly ConcurrentDictionary<JobId, ChopJob> _jobs = new();
+    private readonly FileStream? _lock;
 
     public ChopJobStore()
     {
@@ -40,17 +49,165 @@ public sealed class ChopJobStore : IDisposable
         // %TEMP%/PoChopAudio outright on construction and on dispose, so a second instance on the
         // same machine deleted the first one's audio out from under it — two API processes on
         // different ports, or several WebApplicationFactory test hosts running in parallel.
-        var parent = Path.Combine(Path.GetTempPath(), "PoChopAudio");
-        Directory.CreateDirectory(parent);
-        SweepStaleSiblings(parent, Lifetime);
+        Directory.CreateDirectory(ParentRoot);
 
-        Root = Path.Combine(parent, Guid.NewGuid().ToString("N"));
+        Root = Path.Combine(ParentRoot, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
+        _lock = TryTakeLock(Root);
+
+        SweepAbandoned();
     }
+
+    /// <summary>
+    /// The shared directory every store's scratch space lives under. Public so a host can report
+    /// where the app is writing and offer to clean it up; the store itself only ever owns
+    /// <see cref="Root"/> beneath it.
+    /// </summary>
+    public static string ParentRoot => Path.Combine(Path.GetTempPath(), "PoChopAudio");
 
     public string Root { get; }
 
     public int Count => _jobs.Count;
+
+    /// <summary>
+    /// Total bytes under <see cref="ParentRoot"/>, this store's own scratch included. Best effort:
+    /// a file that vanishes mid-walk is skipped rather than throwing, because the number exists to
+    /// be displayed, not to be relied on.
+    /// </summary>
+    public static long ScratchBytes()
+    {
+        try
+        {
+            return Directory.Exists(ParentRoot)
+                ? Directory.EnumerateFiles(ParentRoot, "*", SearchOption.AllDirectories)
+                    .Sum(SafeLength)
+                : 0;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
+    private static long SafeLength(string path)
+    {
+        try
+        {
+            return new FileInfo(path).Length;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Deletes scratch directories left behind by processes that died without disposing, and
+    /// returns how many went.
+    /// <para>
+    /// A sibling is skipped whenever its lock file is still held, which is the difference between
+    /// "abandoned" and "another copy of this app is using it right now". The earlier version of
+    /// this used age instead, and age cannot tell those apart: a second instance five minutes into
+    /// a session looks exactly like a crashed one. That was tolerable while the only caller was
+    /// this constructor sweeping two-hour-old leftovers, and stops being tolerable the moment a
+    /// user can press a button that means "clean up now".
+    /// </para>
+    /// </summary>
+    public int SweepAbandoned()
+    {
+        var removed = 0;
+
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(ParentRoot))
+            {
+                if (string.Equals(directory, Root, StringComparison.OrdinalIgnoreCase)
+                    || IsInUse(directory))
+                {
+                    continue;
+                }
+
+                TryDeleteDirectory(directory);
+
+                if (!Directory.Exists(directory))
+                {
+                    removed++;
+                }
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// True when a live store still holds <paramref name="directory"/>. A directory with no lock
+    /// file is treated as free: that is the crashed-process case, because the handle Windows
+    /// releases on exit takes the file with it.
+    /// </summary>
+    private static bool IsInUse(string directory)
+    {
+        var lockPath = Path.Combine(directory, LockFileName);
+
+        if (!File.Exists(lockPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var probe = new FileStream(lockPath, FileMode.Open, FileAccess.Read, FileShare.None);
+            return false;
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Marks <paramref name="root"/> as live. Returns null when the lock cannot be taken — a
+    /// read-only or exotic temp directory is not a reason to refuse to start; the store simply
+    /// looks abandoned to other instances, which is how it behaved before locks existed.
+    /// </summary>
+    private static FileStream? TryTakeLock(string root)
+    {
+        try
+        {
+            return new FileStream(
+                Path.Combine(root, LockFileName),
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 1,
+                FileOptions.DeleteOnClose);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
 
     public ChopJob Create(string originalFileName)
     {
@@ -93,32 +250,11 @@ public sealed class ChopJobStore : IDisposable
         return removed;
     }
 
-    public void Dispose() => TryDeleteDirectory(Root);
-
-    /// <summary>
-    /// Removes leftovers from instances that died without disposing. Age is the only safe signal
-    /// that a sibling is abandoned rather than in use by a live process, and anything older than
-    /// the job lifetime would have expired regardless — so nothing still wanted is ever deleted.
-    /// </summary>
-    private static void SweepStaleSiblings(string parent, TimeSpan lifetime)
+    public void Dispose()
     {
-        try
-        {
-            var cutoff = DateTime.UtcNow - lifetime;
-            foreach (var directory in Directory.EnumerateDirectories(parent))
-            {
-                if (Directory.GetLastWriteTimeUtc(directory) < cutoff)
-                {
-                    TryDeleteDirectory(directory);
-                }
-            }
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
+        // DeleteOnClose removes the lock file here, which is what lets the directory delete cleanly.
+        _lock?.Dispose();
+        TryDeleteDirectory(Root);
     }
 
     private static void TryDeleteDirectory(string path)

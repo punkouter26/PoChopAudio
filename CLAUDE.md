@@ -16,12 +16,21 @@ not reintroduce them.**
 
 ## Governance documents
 
-- [NET_RULES.md](NET_RULES.md) — the standing rules (naming, layout, testing). Written for this
-  author's projects generally, so **its §4 Blazor UI section and the web half of §6 no longer apply
-  here**; §1 also says trunk is `master` while this repo's trunk is `main`. Everything else holds.
-- [AGENT.md](AGENT.md) — the living architecture doc. Records what was actually built and why,
-  including a "Deliberately absent" section. Update it when architecture changes.
-- [README.md](README.md) — user-facing behaviour of the chop knobs.
+- [AGENT.md](AGENT.md) — the architecture doc. Records what was built and why, including a
+  "Deliberately absent" section. **Read it for the algorithms, distrust it on the plumbing.** Large
+  parts predate the desktop move and were never updated: it describes HTTP endpoints
+  (`POST /api/chop/upload`), a browser `/headshots` page, an `AudioWorklet` recorder, a
+  `SCRIPTS/verify-recorder-wav.js` and `SCRIPTS/verify-camera.js` that do not exist, a
+  `CutoutEngine.BrowserOnnx` that no longer ships, and a Chop page "excluded from build" that is in
+  fact built and navigable. Its "No face-detection model" claim is also stale — see `IFaceLocator`
+  below. The Detection, Export polish, Decoding and meter sections *are* current and are the best
+  explanation of the DSP anywhere in the repo. Update it when architecture changes.
+- [README.md](README.md) — user-facing behaviour of the chop and export knobs. Current.
+- `NET_RULES.md` — the author's standing rules (naming, layout, testing). **Deleted from the working
+  tree but still tracked**; read it with `git show HEAD:NET_RULES.md` if you need the full text. The
+  parts that still bind here are §2 (vertical slices never reference each other — anything two
+  slices need goes in `Shared`) and §5 (test layout). Its §4 Blazor UI section and the web half of
+  §6 no longer apply, and §1 says trunk is `master` while this repo's trunk is `main`.
 
 ## Commands
 
@@ -40,14 +49,17 @@ Plain dotnet, against the `.slnx` solution:
 dotnet build PoChopAudio.slnx -c Release
 dotnet test PoChopAudio.slnx                              # both test projects
 dotnet test tests/PoChopAudio.Unit --filter "FullyQualifiedName~SegmentDetectorTests"
+dotnet test tests/PoChopAudio.Unit --filter "FullyQualifiedName~HeadFinderTests.KeepsFullHeightForHeadOnlyPhoto"
 ```
 
-`TreatWarningsAsErrors` is on solution-wide — a warning fails the build.
+`TreatWarningsAsErrors` is on solution-wide — a warning fails the build. There is no separate
+linter, formatter or analyzer config: the compiler is the whole gate. The one blanket suppression is
+`MVVMTK0045` in the WinUI csproj.
 
 ### Building and running the desktop app
 
 The solution-wide build does **not** produce a runnable app: the WinUI project needs an explicit
-platform and RID.
+platform and RID, because it is unpackaged and self-contained.
 
 ```powershell
 dotnet build src/PoChopAudio.WinUI/PoChopAudio.WinUI.csproj -c Release -p:Platform=ARM64 -r win-arm64
@@ -59,6 +71,14 @@ Then run the exe from **`bin`, never `publish`**:
 src\PoChopAudio.WinUI\bin\ARM64\Release\net10.0-windows10.0.19041.0\win-arm64\PoChopAudio.WinUI.exe
 ```
 
+**Check the architecture before you build.** `Platforms` is `x86;x64;ARM64` and the output path
+contains whichever you picked, so a wrong guess quietly builds an app you then cannot find.
+`setup.ps1` defaults to ARM64 only when `$env:PROCESSOR_ARCHITECTURE` equals `ARM64`, and **that
+variable reads `AMD64` inside an emulated x64 shell on an ARM64 machine** — so the default can be
+wrong for the machine it is running on. Get the truth from
+`[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture` and pass `-Platform`
+explicitly.
+
 `dotnet publish` silently drops `PoChopAudio.WinUI.pri`, the app's own resource index, and without
 it the app dies at startup with a stowed exception (`0xC000027B`) inside `Microsoft.UI.Xaml.dll`.
 The build output has the `.pri` plus every self-contained Windows App SDK file.
@@ -66,6 +86,14 @@ The build output has the `.pri` plus every self-contained Windows App SDK file.
 **The app is self-contained** (`WindowsAppSDKSelfContained` + `SelfContained`). The pinned Windows
 App SDK 1.6 runtime is not installed on most machines, and an unpackaged app without it fails to
 launch with `0x80670016`. Shipping the runtime in the output folder avoids a machine-wide install.
+
+### When the running app misbehaves
+
+There is no console. Logs go to `%LOCALAPPDATA%\PoChopAudio\logs\pochopaudio.log`
+([FileLoggerProvider.cs](src/PoChopAudio.WinUI/Services/FileLoggerProvider.cs)), which is the only
+window into the camera, the face locator and the cutout pipeline — none of which any test covers.
+The file is **deleted and restarted** past 2 MB rather than rotated, so copy it before reproducing
+something long.
 
 ## Architecture in one pass
 
@@ -104,6 +132,8 @@ The interesting, test-covered parts are pure and I/O-free — put new logic ther
   is a saliency model, not a face model, so its alpha bounding box always includes the shoulders.
   This reads per-row mask widths: the head widens to a peak, narrows to the neck, then the
   shoulders flare back out. Cut at the neck. A head-only photo never flares and keeps full height.
+  Each tuning constant carries the reasoning for its current value in a doc comment — read those
+  before changing a number.
 - [ImageDecoder.cs](src/PoChopAudio.Services/Cutout/ImageDecoder.cs) — decode, EXIF auto-rotate,
   Pixel Motion Photo (`.MP.jpg`) trailer strip.
 
@@ -146,25 +176,46 @@ the caller decides where they run.
   `string` ids crossing a boundary. Closed sets are enums (`CutoutEngine`).
 - **Logging** goes through `[LoggerMessage]` source generators (`ChopLog`, `CutoutLog`). No string
   interpolation in log calls. `Services` uses `Microsoft.Extensions.Logging.Abstractions`; the app
-  registers a factory with `services.AddLogging()`.
+  registers a factory in `App.ConfigureServices` with `services.AddLogging()`.
 - **Batch failure is per file.** A file that will not decode is flagged and still included in the
   ZIP; the batch never aborts.
 - **Packages are pinned centrally** in [Directory.Packages.props](Directory.Packages.props); project
-  files carry bare `<PackageReference Include="..." />` with no version.
+  files carry bare `<PackageReference Include="..." />` with no version. Adding a package means
+  editing both files.
 - **Scoped XAML, no inline styles.** WinUI 3 ships no `WrapPanel`; there is a small one in
   [Controls/WrapPanel.cs](src/PoChopAudio.WinUI/Controls/WrapPanel.cs) rather than a toolkit
   dependency.
 
+### Settings, and what persists
+
+Exactly three things survive a restart — theme, default save folder, and whether a batch save may
+skip the folder picker — in `%LOCALAPPDATA%/PoChopAudio/settings.json` via `AppSettingsService`.
+The chop and cutout knobs are deliberately **not** persisted: a knob belongs to a take, not to the
+app. Do not add them without reading the reasoning in AGENT.md.
+
+The Settings page also carries the capability report (`DiagnosticsReport`) — the one place that
+says out loud which optional capabilities actually started on this machine, and the only user-facing
+report for the five that used to degrade silently.
+
 ### Optional-capability pattern
 
-`u2netp.onnx` is absent from a fresh clone. The WinUI csproj includes it only
-`Condition="Exists(...)"`; when missing, `EnginePicker` drops `OnnxU2Net`, `CutoutService.IsAvailable`
-goes false and the Cutout page shows a banner saying so. Cutout tests skip themselves.
+The rule for anything optional: **probe, report, degrade — never throw at startup.** Three live
+instances, and new optional dependencies should take the same shape:
 
-Platform codecs are the same shape: M4A/AAC/WMA go through `MediaFoundationReader`.
-`AudioDecoder.IsSupportedExtension` reports the list for the running platform.
-
-Follow this pattern for anything else optional: probe, report, degrade — never throw at startup.
+- **The cutout model.** `u2netp.onnx` is absent from a fresh clone. The WinUI csproj includes it
+  only `Condition="Exists(...)"`; when missing, `EnginePicker` drops `OnnxU2Net`,
+  `CutoutService.IsAvailable` goes false, the Cutout page shows a banner, and the service returns
+  `EngineUnavailable` naming the download script. Cutout tests skip themselves.
+- **Face detection.** [IFaceLocator.cs](src/PoChopAudio.Services/Cutout/IFaceLocator.cs) is the
+  interesting variant: the interface lives in `Services` with **no implementation there**, because
+  the only implementation is a Windows API and `Services` may not reference an OS framework. The app
+  registers [WindowsFaceLocator.cs](src/PoChopAudio.WinUI/Services/WindowsFaceLocator.cs), and
+  `CutoutService` takes it as an optional constructor parameter defaulting to null. A measured chin
+  replaces `HeadFinder`'s inference of where the neck is when it is available; the mask-shape logic
+  runs unchanged when it is not, which is why the tests never need it.
+- **Platform codecs.** M4A/AAC/WMA go through `MediaFoundationReader`, Windows-only.
+  `AudioDecoder.IsSupportedExtension` reports the list for the running platform, so the UI never
+  offers a format that cannot be read.
 
 ### Camera
 
@@ -180,12 +231,15 @@ queue grows without bound and the preview drifts seconds behind the room.
 
 | Project | Scope | State |
 | --- | --- | --- |
-| `tests/PoChopAudio.Unit` | Pure logic — detector, exporters, decoder, edge processor | 103 tests, all passing. Add here first |
-| `tests/PoChopAudio.Integration` | Multi-component behaviour against the real services | 19 tests, all passing |
+| `tests/PoChopAudio.Unit` | Pure logic — detector, exporters, decoder, edge processor, head finder, job store | 105 tests, all passing. Add here first |
+| `tests/PoChopAudio.Integration` | Multi-component behaviour against the real services | 20 tests, all passing |
 
 Both reference `Services` and `Shared` directly. `Integration` used to drive the HTTP pipeline
 through `WebApplicationFactory`; when the API was deleted its export-maths and cutout-pipeline tests
-were ported to call the services instead, which is closer to what the app actually does.
+were ported to call the services instead, which is closer to what the app actually does. It links in
+`u2netp.onnx` from the WinUI project `Condition="Exists(...)"`, so its cutout tests skip on a fresh
+clone rather than fail.
 
-The camera, the microphone and the WinUI UI itself need real hardware and a real window, and are
-**not covered by any automated test**.
+The camera, the microphone, the face locator and the WinUI UI itself need real hardware and a real
+window, and are **not covered by any automated test** — the log file is the only way to see them
+work.

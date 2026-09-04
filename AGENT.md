@@ -24,7 +24,7 @@ src/PoChopAudio.Services/     Host-agnostic engine room. No UI, no hosting frame
   Chop/ClipExporter           WAV slicing, UniqueStems, two-pass normalized export, ZIP
   Chop/LoudnessMeter          ITU-R BS.1770-4 K-weighting + gated integrated loudness
   Chop/ClipProcessor          Export maths: gain decision and fade curve, no I/O
-  Chop/ChopJobStore           Temp-dir job scratch space, 2 h TTL
+  Chop/ChopJobStore           Temp-dir job scratch space, 2 h TTL, lock-file liveness
   Cutout/CutoutService        CutOutAsync: decode, mask, clean, head-crop, encode — one call
   Cutout/ImageDecoder         JPEG/PNG/WebP decode, EXIF auto-rotate, MP.jpg trailer strip
   Cutout/EdgeProcessor        Mask threshold, morphology, feather, alpha multiplier
@@ -35,8 +35,11 @@ src/PoChopAudio.Shared/       Contracts: JobId, ChopLimits, ChopOptions, ExportO
                               CutoutLimits, CutoutEngine, IBackgroundRemover, CutoutOptions
 src/PoChopAudio.WinUI/        The app. Unpackaged, self-contained Windows App SDK.
   App.xaml.cs                 DI registration — the same singletons the API used to register
-  MainWindow.xaml             NavigationView shell: Chop Audio (excluded from build), Cutout Studio
+  MainWindow.xaml             NavigationView shell: Chop Audio, Cutout Studio, Settings
   Views/CutoutPage            Camera viewfinder, TAKE PHOTO, and the cut-out results below it
+  Views/SettingsPage          Appearance, saving, storage, capability report, about
+  Services/AppSettingsService JSON settings under %LOCALAPPDATA%; the only state that outlives a run
+  Services/DiagnosticsReport  Probes every optional capability and renders it as name/value lines
   Services/CameraService      MediaFrameReader viewfinder + still capture
   Services/AudioRecorderService, AudioPlayerService, ExportService
   Services/ServiceOutcomeExtensions  .OrThrow(), the Outcome-to-exception seam
@@ -287,6 +290,71 @@ The browser engine downloads `onnxruntime-web` from jsDelivr at first use, cache
 IndexedDB, and posts the masked PNG back as `image/png`. The model file is served from the API
 host at `_content/cutout-models/u2netp.onnx`.
 
+## Settings and diagnostics
+
+Three things persist across a restart, and only three: the theme, a default save folder, and
+whether batch saves may skip the folder picker. They live in
+`%LOCALAPPDATA%/PoChopAudio/settings.json`.
+
+**The chop and cutout knobs are deliberately not among them.** Those belong to a take, not to the
+app, and carrying the last session's tuning silently into the next one hands someone clips cut by
+settings they cannot remember choosing. `ResetSettings` on the Chop page already exists for the
+case where the knobs need to go back; a persisted knob would fight it.
+
+`AppSettingsService` follows the same probe-report-degrade rule as the ONNX model: a missing file
+is the ordinary first-run case, and a corrupt one falls back to defaults rather than throwing.
+Settings are a convenience, so failing to read them must never be what stops the app starting.
+
+**Theme is applied to the frame, not the application.** `Application.RequestedTheme` can only be
+set before the first window exists, so a live toggle has to assign `RequestedTheme` on the window's
+root element — every page lives inside that one frame, so a single assignment re-themes the lot.
+
+### The capability report
+
+Six things in this app degrade quietly when something is missing — the ONNX model, the Windows face
+detector, the Media Foundation codecs, a camera, a microphone, and Mica — and before this only one
+of them (the missing model) was reported anywhere a user could see. The rest failed correctly and
+silently, which is worse than failing loudly: the app does less and never says which part.
+
+`DiagnosticsReport` probes all of them into one list the Settings page renders and a Copy button
+turns into pasteable text. Absent capabilities are drawn amber rather than red, because every one
+of them degrades to something that still works. It is rebuilt on every visit to the page rather
+than cached — a camera can be plugged in, or the model downloaded, while the app is running, and a
+stale report is worse than none when it is the one someone pastes into a bug.
+
+### Cleaning up scratch
+
+The Settings page can delete scratch left by earlier runs, which changed how `ChopJobStore` decides
+what is abandoned. It used to use age: anything older than the two-hour job lifetime was assumed
+dead. That is safe for a constructor sweeping yesterday's leftovers and unsafe the moment a user
+can press "clean up now", because a second copy of the app five minutes into a session looks
+exactly like a crashed one.
+
+So liveness is now explicit. Each store holds `Root/.inuse` open with `FileShare.None` for as long
+as it lives, and a sweep skips any sibling whose lock it cannot take. `FileOptions.DeleteOnClose`
+means Windows drops the file even when the process is killed outright — which is precisely the case
+the age check existed to cover, now answered exactly instead of guessed. A directory with no lock
+file is free by definition.
+
+## Accessibility
+
+Every icon-only button, slider, toggle and custom control carries an `AutomationProperties.Name`;
+there were none at all before. Three of those needed more than a literal string:
+
+- **Sliders** have a label `TextBlock` beside them that is never programmatically associated, so a
+  screen reader read them as bare tracks. Each one names its own unit — "Shortest gap, in
+  milliseconds".
+- **Rows in a list** all carried the same "Play" and "Save", which is indistinguishable to anyone
+  not looking at the screen. `LabelWithValueConverter` folds the row's own value into the label, so
+  they announce as "Play sound 1", "Play sound 2".
+- **The waveform and the level meter** are drawn, not composed, so nothing about them is visible to
+  assistive tech no matter how they are decorated. Both set their name from code as their contents
+  change: the waveform announces the file, its length and how many sounds were found; the meter
+  announces the level it is showing.
+
+Status and error lines are `LiveSetting="Polite"` and `"Assertive"` respectively — a red line that
+appears silently reaches nobody who is not already watching it.
+
 ## Deliberately absent
 
 - **No auth.** Nothing is protected, so there is no BFF cookie flow, no Entra ID, no
@@ -303,5 +371,10 @@ host at `_content/cutout-models/u2netp.onnx`.
   and dropped per the no-paid-services decision.
 - **No per-file progress bar.** Processing is sequential and the status line names the file it is
   on, which is enough at this scale.
+- **No persisted chop or cutout knobs, and no presets.** See "Settings and diagnostics" above: a
+  knob is part of a take, not part of the app.
+- **No keyboard accelerators, and no device pickers.** The Settings page reports which microphone
+  and camera the app resolved to, which is what catches the wrong one being used; choosing a
+  different one is a separate feature and is not built.
 - **No face-detection model.** `HeadFinder` crops to the head by reading the shape of the saliency
   mask — peak, neck, shoulder flare — rather than adding a second ONNX model for faces.

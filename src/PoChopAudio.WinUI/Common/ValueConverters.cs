@@ -1,5 +1,8 @@
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Media;
+using PoChopAudio.WinUI.Services;
 
 namespace PoChopAudio.WinUI.Common;
 
@@ -49,6 +52,37 @@ public sealed class NullToVisibilityConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
 
+/// <summary>
+/// Colours the dot beside a diagnostic. Present capabilities are green, absent ones amber rather
+/// than red: every one of them degrades to something that still works, so none of them is an error.
+/// </summary>
+public sealed class DiagnosticStateToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        new SolidColorBrush(value switch
+        {
+            DiagnosticState.Good => ColorHelper.FromArgb(0xFF, 0x16, 0xA3, 0x4A),
+            DiagnosticState.Missing => ColorHelper.FromArgb(0xFF, 0xF5, 0x9E, 0x0B),
+            _ => ColorHelper.FromArgb(0x66, 0x94, 0xA3, 0xB8),
+        });
 
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
 
+/// <summary>
+/// Builds a screen-reader label out of a fixed verb and the row's own value, so a column of
+/// buttons all labelled "Play" announces as "Play sound 1", "Play sound 2" and so on. Without it
+/// every row in a list is indistinguishable to anyone not looking at the screen.
+/// </summary>
+public sealed class LabelWithValueConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        var prefix = parameter as string ?? string.Empty;
+        return string.IsNullOrEmpty(prefix) ? $"{value}" : $"{prefix} {value}";
+    }
 
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}

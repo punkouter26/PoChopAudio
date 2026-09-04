@@ -11,6 +11,7 @@
         <common:BoolToVisibilityConverter x:Key="InvertedBoolToVis" Invert="True" />
         <common:InvertedBoolConverter x:Key="InvertBool" />
         <common:NullToVisibilityConverter x:Key="NullToVis" />
+        <common:LabelWithValueConverter x:Key="RowLabel" />
     </Page.Resources>
 
     <!-- Horizontal scrolling stays Disabled so content can never measure wider than the viewport. -->
@@ -36,6 +37,7 @@
                 <Button Grid.Column="1" x:Name="ClearButton"
                         VerticalAlignment="Center"
                         Command="{x:Bind ViewModel.StartOverCommand}"
+                        AutomationProperties.Name="Clear everything and start again"
                         ToolTipService.ToolTip="Drop everything and start again">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE74D;" FontSize="14" />
@@ -65,7 +67,8 @@
                             Style="{ThemeResource AccentButtonStyle}"
                             Background="#DC2626"
                             Visibility="{x:Bind ViewModel.IsRecording, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}"
-                            Command="{x:Bind ViewModel.StartRecordingCommand}">
+                            Command="{x:Bind ViewModel.StartRecordingCommand}"
+                            AutomationProperties.Name="Start recording">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon Glyph="&#xE7C8;" FontSize="16" />
                             <TextBlock Text="Record" FontSize="16" FontWeight="SemiBold" />
@@ -75,7 +78,8 @@
                     <Button HorizontalAlignment="Stretch" Height="52"
                             Style="{ThemeResource AccentButtonStyle}"
                             Visibility="{x:Bind ViewModel.IsRecording, Mode=OneWay, Converter={StaticResource BoolToVis}}"
-                            Command="{x:Bind ViewModel.StopRecordingCommand}">
+                            Command="{x:Bind ViewModel.StopRecordingCommand}"
+                            AutomationProperties.Name="Stop recording and split it into sounds">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <FontIcon Glyph="&#xE71A;" FontSize="16" />
                             <TextBlock Text="Stop and split" FontSize="16" FontWeight="SemiBold" />
@@ -92,7 +96,8 @@
                                 Visibility="{x:Bind ViewModel.IsRecording, Mode=OneWay, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="{x:Bind ViewModel.RecordingElapsed, Mode=OneWay}"
                                    FontFamily="Consolas" FontWeight="Bold" FontSize="20"
-                                   Foreground="#DC2626" VerticalAlignment="Center" />
+                                   Foreground="#DC2626" VerticalAlignment="Center"
+                                   AutomationProperties.Name="Time recorded" />
                         <TextBlock Text="Leave a gap of silence between each sound."
                                    VerticalAlignment="Center" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -105,17 +110,40 @@
                             HorizontalAlignment="Center">
                         <HyperlinkButton Content="or open an audio file you already have"
                                          FontSize="12"
+                                         AutomationProperties.Name="Open an audio file from disk"
                                          Click="OnBrowseFilesClicked" />
                     </Border>
 
                     <ProgressBar IsIndeterminate="True"
+                                 AutomationProperties.Name="Working"
                                  Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                     <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" TextWrapping="Wrap"
                                Visibility="{x:Bind ViewModel.StatusMessage, Mode=OneWay, Converter={StaticResource NullToVis}}"
+                               AutomationProperties.LiveSetting="Polite"
                                Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" />
                     <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" TextWrapping="Wrap"
                                Visibility="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NullToVis}}"
+                               AutomationProperties.LiveSetting="Assertive"
                                Foreground="#EF4444" FontWeight="SemiBold" />
+                </StackPanel>
+            </Border>
+
+            <!--
+                Between "app opened" and "first take recorded" the page was blank below the
+                record card, which reads as something failing rather than nothing having
+                happened yet. This says what to do instead.
+            -->
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="24"
+                    Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}">
+                <StackPanel Spacing="8" HorizontalAlignment="Center">
+                    <FontIcon Glyph="&#xE8D6;" FontSize="28" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock Text="No sounds yet" HorizontalAlignment="Center" FontWeight="SemiBold" />
+                    <TextBlock Text="Name your sounds, press Record, and make each one with a clear pause in between. Every sound is split into its own WAV and lands here."
+                               TextWrapping="Wrap" TextAlignment="Center" MaxWidth="460" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
             </Border>
 
@@ -131,6 +159,7 @@
                 <controls:WrapPanel Grid.Column="1" HorizontalSpacing="8" VerticalSpacing="8">
                     <Button Style="{ThemeResource AccentButtonStyle}"
                             Click="OnSaveAllToFolderClicked"
+                            AutomationProperties.Name="Save every sound as a WAV into a folder"
                             ToolTipService.ToolTip="Write every sound as its own WAV into a folder you pick">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE74E;" FontSize="14" />
@@ -138,6 +167,7 @@
                         </StackPanel>
                     </Button>
                     <Button Click="OnExportBatchZipClicked"
+                            AutomationProperties.Name="Save every sound together as one ZIP"
                             ToolTipService.ToolTip="Download every sound together as a single ZIP">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE8B5;" FontSize="14" />
@@ -176,7 +206,8 @@
                                     </StackPanel>
 
                                     <Button Grid.Column="1" Content="Play all" Click="OnPlayOriginalClicked"
-                                            VerticalAlignment="Center" />
+                                            VerticalAlignment="Center"
+                                            AutomationProperties.Name="{x:Bind FileName, Converter={StaticResource RowLabel}, ConverterParameter=Play the whole recording of}" />
                                 </Grid>
 
                                 <controls:WaveformView Item="{x:Bind}" SegmentClicked="OnWaveformSegmentClicked" />
@@ -208,8 +239,10 @@
                                                     </TextBlock>
 
                                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                                        <Button Content="Play" Click="OnPlayTakeItemClicked" />
-                                                        <Button Content="Save" Click="OnSaveTakeItemClicked" />
+                                                        <Button Content="Play" Click="OnPlayTakeItemClicked"
+                                                                AutomationProperties.Name="{Binding Index, Converter={StaticResource RowLabel}, ConverterParameter=Play sound}" />
+                                                        <Button Content="Save" Click="OnSaveTakeItemClicked"
+                                                                AutomationProperties.Name="{Binding Index, Converter={StaticResource RowLabel}, ConverterParameter=Save sound}" />
                                                     </StackPanel>
                                                 </Grid>
                                             </Border>
@@ -234,24 +267,28 @@
                                             <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
                                                 <TextBlock Text="How many sounds?" FontSize="12" />
                                                 <NumberBox Value="{x:Bind Settings.ExpectedSegments, Mode=TwoWay}"
+        AutomationProperties.Name="How many sounds to expect in this recording"
                                                            Minimum="1" Maximum="64" SmallChange="1" SpinButtonPlacementMode="Inline" />
                                             </StackPanel>
 
                                             <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2">
                                                 <TextBlock Text="Ignore sounds shorter than (ms)" FontSize="12" />
                                                 <Slider Value="{x:Bind Settings.MinSegmentMs, Mode=TwoWay}"
+        AutomationProperties.Name="Ignore sounds shorter than, in milliseconds"
                                                         Minimum="10" Maximum="2000" StepFrequency="10" />
                                             </StackPanel>
 
                                             <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2">
                                                 <TextBlock Text="Minimum gap between sounds (ms)" FontSize="12" />
                                                 <Slider Value="{x:Bind Settings.MinGapMs, Mode=TwoWay}"
+        AutomationProperties.Name="Minimum gap between sounds, in milliseconds"
                                                         Minimum="10" Maximum="2000" StepFrequency="10" />
                                             </StackPanel>
 
                                             <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
                                                 <TextBlock Text="Breathing room around each sound (ms)" FontSize="12" />
                                                 <Slider Value="{x:Bind Settings.PadMs, Mode=TwoWay}"
+        AutomationProperties.Name="Breathing room around each sound, in milliseconds"
                                                         Minimum="0" Maximum="500" StepFrequency="5" />
                                             </StackPanel>
                                         </Grid>
@@ -287,6 +324,7 @@
                         <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
                             <TextBlock Text="Sounds Expected" FontWeight="SemiBold" />
                             <NumberBox Value="{x:Bind ViewModel.BatchKnobs.ExpectedSegments, Mode=TwoWay}"
+        AutomationProperties.Name="How many sounds to expect in every recording"
                                        Minimum="1" Maximum="64" SmallChange="1" SpinButtonPlacementMode="Inline" />
                         </StackPanel>
 
@@ -296,6 +334,7 @@
                                 <TextBlock Text="{x:Bind ViewModel.BatchKnobs.MinSegmentMs, Mode=OneWay}" HorizontalAlignment="Right" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.BatchKnobs.MinSegmentMs, Mode=TwoWay}"
+        AutomationProperties.Name="Shortest sound, in milliseconds"
                                     Minimum="10" Maximum="2000" StepFrequency="10" />
                         </StackPanel>
 
@@ -305,6 +344,7 @@
                                 <TextBlock Text="{x:Bind ViewModel.BatchKnobs.MinGapMs, Mode=OneWay}" HorizontalAlignment="Right" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.BatchKnobs.MinGapMs, Mode=TwoWay}"
+        AutomationProperties.Name="Shortest gap, in milliseconds"
                                     Minimum="10" Maximum="2000" StepFrequency="10" />
                         </StackPanel>
 
@@ -314,6 +354,7 @@
                                 <TextBlock Text="{x:Bind ViewModel.BatchKnobs.PadMs, Mode=OneWay}" HorizontalAlignment="Right" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.BatchKnobs.PadMs, Mode=TwoWay}"
+        AutomationProperties.Name="Padding around each sound, in milliseconds"
                                     Minimum="0" Maximum="500" StepFrequency="5" />
                         </StackPanel>
 
@@ -321,9 +362,11 @@
                             <Grid>
                                 <TextBlock Text="Threshold" FontWeight="SemiBold" VerticalAlignment="Center" />
                                 <ToggleSwitch IsOn="{x:Bind ViewModel.BatchKnobs.AutoThreshold, Mode=TwoWay}"
+        AutomationProperties.Name="Choose the detection threshold automatically"
                                               OnContent="Auto" OffContent="Manual" HorizontalAlignment="Right" MinWidth="0" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.BatchKnobs.ThresholdDb, Mode=TwoWay}"
+        AutomationProperties.Name="Detection threshold, in decibels"
                                     Minimum="-80" Maximum="0" StepFrequency="0.5"
                                     IsEnabled="{x:Bind ViewModel.BatchKnobs.AutoThreshold, Mode=OneWay, Converter={StaticResource InvertBool}}" />
                         </StackPanel>
@@ -334,6 +377,7 @@
                                 <TextBlock Text="{x:Bind ViewModel.BatchKnobs.TrimSilenceMs, Mode=OneWay}" HorizontalAlignment="Right" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.BatchKnobs.TrimSilenceMs, Mode=TwoWay}"
+        AutomationProperties.Name="Trim silence, in milliseconds"
                                     Minimum="0" Maximum="1000" StepFrequency="50" />
                         </StackPanel>
                     </Grid>
@@ -365,6 +409,7 @@
                                 <TextBlock Text="{x:Bind ViewModel.ExportKnobs.TargetDb, Mode=OneWay}" HorizontalAlignment="Right" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.ExportKnobs.TargetDb, Mode=TwoWay}"
+        AutomationProperties.Name="Normalize target level, in decibels"
                                     Minimum="-40" Maximum="0" StepFrequency="0.5" />
                         </StackPanel>
 
@@ -374,6 +419,7 @@
                                 <TextBlock Text="{x:Bind ViewModel.ExportKnobs.CeilingDb, Mode=OneWay}" HorizontalAlignment="Right" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.ExportKnobs.CeilingDb, Mode=TwoWay}"
+        AutomationProperties.Name="Peak ceiling, in decibels"
                                     Minimum="-12" Maximum="0" StepFrequency="0.5" />
                         </StackPanel>
 
@@ -383,6 +429,7 @@
                                 <TextBlock Text="{x:Bind ViewModel.ExportKnobs.FadeInMs, Mode=OneWay}" HorizontalAlignment="Right" />
                             </Grid>
                             <Slider Value="{x:Bind ViewModel.ExportKnobs.FadeInMs, Mode=TwoWay}"
+        AutomationProperties.Name="Edge fade length, in milliseconds"
                                     Minimum="0" Maximum="50" StepFrequency="1" />
                         </StackPanel>
                     </Grid>

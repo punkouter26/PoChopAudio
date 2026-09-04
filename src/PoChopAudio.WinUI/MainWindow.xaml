@@ -5,18 +5,41 @@
     Title="PoChopAudio — Audio Chop &amp; Image Cutout">
 
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--
+            Drag region for the extended title bar. Keeping it a plain Grid rather than reusing the
+            NavigationView header matters: SetTitleBar needs one element whose whole area is
+            draggable, and anything interactive inside it stops being clickable.
+        -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="40" Background="Transparent">
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="16,0,0,0" VerticalAlignment="Center">
+                <FontIcon Glyph="&#xE8D6;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Text="PoChopAudio"
+                           Style="{ThemeResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
         <NavigationView x:Name="NavView"
+                        Grid.Row="1"
                         IsBackButtonVisible="Collapsed"
-                        IsSettingsVisible="False"
+                        IsSettingsVisible="True"
                         PaneDisplayMode="Left"
                         ItemInvoked="OnNavItemInvoked">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="Chop Audio" Tag="Chop">
+                <NavigationViewItem Content="Chop Audio" Tag="Chop"
+                                    AutomationProperties.Name="Chop Audio — record and split takes">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8D6;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Cutout Studio" Tag="Cutout">
+                <NavigationViewItem Content="Cutout Studio" Tag="Cutout"
+                                    AutomationProperties.Name="Cutout Studio — take head shots and remove backgrounds">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE722;" />
                     </NavigationViewItem.Icon>
@@ -27,4 +50,3 @@
         </NavigationView>
     </Grid>
 </Window>
-

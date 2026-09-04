@@ -1,5 +1,6 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -75,6 +76,7 @@ public sealed partial class WaveformView : UserControl
             StartTimeText.Text = "0:00.0";
             EndTimeText.Text = "0:00.0";
             PlayheadLine.Visibility = Visibility.Collapsed;
+            AutomationProperties.SetName(RootBorder, "Waveform, empty");
             return;
         }
 
@@ -86,6 +88,12 @@ public sealed partial class WaveformView : UserControl
         StartTimeText.Text = "0:00.0";
         var ts = TimeSpan.FromSeconds(duration);
         EndTimeText.Text = ts.TotalMinutes >= 1 ? $"{ts.Minutes}:{ts.Seconds:D2}.{ts.Milliseconds / 100:D1}" : $"{ts.Seconds}.{ts.Milliseconds / 100:D1}s";
+
+        // The picture carries the whole result of a split, so the name has to carry it too. A
+        // canvas of drawn rectangles is invisible to assistive tech no matter how it is decorated.
+        AutomationProperties.SetName(
+            RootBorder,
+            $"Waveform of {_item.FileName}, {duration:F1} seconds, {_item.Segments.Count} sound{(_item.Segments.Count == 1 ? string.Empty : "s")} found");
 
         // 1. Draw segment highlight boxes
         if (duration > 0 && _item.Segments.Count > 0)

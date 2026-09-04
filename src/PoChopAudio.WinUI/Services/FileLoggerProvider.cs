@@ -26,15 +26,18 @@ public sealed class FileLoggerProvider : ILoggerProvider
 
     public FileLoggerProvider()
     {
-        var dir = Path.Combine(
+        LogDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PoChopAudio", "logs");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "pochopaudio.log");
+        Directory.CreateDirectory(LogDirectory);
+        _path = Path.Combine(LogDirectory, "pochopaudio.log");
     }
 
+    /// <summary>The folder holding the log, so a settings page can open it in Explorer.</summary>
+    public string LogDirectory { get; }
+
     /// <summary>Where the log is being written, for surfacing to the user.</summary>
-    public string Path_ => _path;
+    public string LogFilePath => _path;
 
     public ILogger CreateLogger(string categoryName) => new FileLogger(this, categoryName);
 

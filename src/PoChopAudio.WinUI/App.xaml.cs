@@ -34,10 +34,16 @@ public partial class App : Application
         var services = new ServiceCollection();
 
         // Without a provider every log call was discarded, which left the image pipeline with no
-        // way to explain itself when a result looked wrong.
+        // way to explain itself when a result looked wrong. The provider is registered as well as
+        // added, because the Settings page shows where it writes and offers to open the folder.
+        var logProvider = new FileLoggerProvider();
+        services.AddSingleton(logProvider);
         services.AddLogging(builder => builder
             .SetMinimumLevel(LogLevel.Information)
-            .AddProvider(new FileLoggerProvider()));
+            .AddProvider(logProvider));
+
+        // The only state that outlives a run. Registered first so anything below could read it.
+        services.AddSingleton<AppSettingsService>();
 
         // The shared engine room, registered exactly as the API registers it. Running the same
         // ChopService and CutoutService in-process is what makes this app work with no server.
@@ -63,6 +69,7 @@ public partial class App : Application
         // ViewModels
         services.AddTransient<ChopViewModel>();
         services.AddTransient<CutoutViewModel>();
+        services.AddTransient<SettingsViewModel>();
 
         _serviceProvider = services.BuildServiceProvider();
     }

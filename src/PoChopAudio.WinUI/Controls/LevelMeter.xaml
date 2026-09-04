@@ -4,7 +4,9 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:PoChopAudio.WinUI.Controls">
 
-    <Grid ColumnSpacing="8" Height="28">
+    <Grid ColumnSpacing="8" Height="28"
+          AutomationProperties.Name="Microphone input level"
+          AutomationProperties.LiveSetting="Polite">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
@@ -25,7 +27,8 @@
         <TextBlock x:Name="DbText" Grid.Column="2" Text="-∞ dB" VerticalAlignment="Center" TextAlignment="Right"
                    FontFamily="Consolas, Segoe UI Variable" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
-        <Border x:Name="ClipBadge" Grid.Column="3" Background="#DC2626" CornerRadius="3" Padding="4,1" Visibility="Collapsed">
+        <Border x:Name="ClipBadge" Grid.Column="3" Background="#DC2626" CornerRadius="3" Padding="4,1" Visibility="Collapsed"
+                AutomationProperties.Name="Input is clipping">
             <TextBlock Text="CLIP" FontSize="10" FontWeight="Bold" Foreground="White" />
         </Border>
     </Grid>

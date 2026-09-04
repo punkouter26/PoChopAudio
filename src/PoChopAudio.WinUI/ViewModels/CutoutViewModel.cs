@@ -18,12 +18,14 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
 {
     private readonly CutoutService _cutout;
     private readonly CameraService _camera;
+    private readonly AppSettingsService _settings;
     private readonly CancellationTokenSource _cts = new();
 
-    public CutoutViewModel(CutoutService cutout, CameraService camera)
+    public CutoutViewModel(CutoutService cutout, CameraService camera, AppSettingsService settings)
     {
         _cutout = cutout;
         _camera = camera;
+        _settings = settings;
     }
 
     public ObservableCollection<CutoutFileItem> Files { get; } = [];
@@ -122,7 +124,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
         var ready = Files.Where(f => f.IsReady).ToList();
         if (ready.Count == 0) return;
 
-        var folderPath = await ExportService.PickFolderAsync(window);
+        var folderPath = await ExportService.ResolveBatchFolderAsync(window, _settings);
         if (string.IsNullOrEmpty(folderPath)) return;
 
         IsBusy = true;

@@ -17,6 +17,28 @@ public sealed class ExportService
         return folder?.Path;
     }
 
+    /// <summary>
+    /// Where a batch save should write. Honours the default folder only when the user has
+    /// explicitly asked to skip the picker, and falls back to asking whenever that folder has since
+    /// been renamed, unmounted or deleted — a saved path is a preference, never a promise that the
+    /// folder still exists.
+    /// </summary>
+    public static async Task<string?> ResolveBatchFolderAsync(Window window, AppSettingsService settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        var preferred = settings.Current.DefaultSaveFolder;
+
+        if (settings.Current.SaveWithoutAsking
+            && !string.IsNullOrWhiteSpace(preferred)
+            && Directory.Exists(preferred))
+        {
+            return preferred;
+        }
+
+        return await PickFolderAsync(window);
+    }
+
     public static async Task<string?> PickSaveFileAsync(Window window, string defaultName, string extension, string fileTypeDesc)
     {
         var picker = new FileSavePicker();

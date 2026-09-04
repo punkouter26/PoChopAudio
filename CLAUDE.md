@@ -26,8 +26,8 @@ not reintroduce them.**
   below. The Detection, Export polish, Decoding and meter sections *are* current and are the best
   explanation of the DSP anywhere in the repo. Update it when architecture changes.
 - [README.md](README.md) — user-facing behaviour of the chop and export knobs. Current.
-- `NET_RULES.md` — the author's standing rules (naming, layout, testing). **Deleted from the working
-  tree but still tracked**; read it with `git show HEAD:NET_RULES.md` if you need the full text. The
+- `NET_RULES.md` — the author's standing rules (naming, layout, testing). **Deleted from the repo**;
+  read it with `git show f185bd3:NET_RULES.md`, the last commit that carried it. The
   parts that still bind here are §2 (vertical slices never reference each other — anything two
   slices need goes in `Shared`) and §5 (test layout). Its §4 Blazor UI section and the web half of
   §6 no longer apply, and §1 says trunk is `master` while this repo's trunk is `main`.

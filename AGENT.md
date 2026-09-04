@@ -3,7 +3,8 @@
 Recordings in, one WAV per take out. Point it at files holding five repetitions of a sound
 separated by pauses and it returns five clips each, trimmed to the start and end of every take.
 
-Governance lives in [NET_RULES.md](NET_RULES.md); this file records what was actually built.
+Governance lived in `NET_RULES.md`, now deleted (`git show f185bd3:NET_RULES.md` for the text);
+this file records what was actually built.
 
 > **PoChopAudio is a WinUI 3 desktop app.** The ASP.NET Minimal API (`PoChopAudio.API`) and the
 > Blazor WASM client (`PoChopAudio.Client`) were deleted: everything now runs in-process on the

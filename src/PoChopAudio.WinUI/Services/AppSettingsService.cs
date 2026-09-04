@@ -23,6 +23,13 @@ public sealed class AppSettings
     public string? DefaultSaveFolder { get; set; }
 
     /// <summary>
+    /// Whether the synthesised count-in and completion cues are allowed to sound. Off by default:
+    /// this is an app for recording and judging audio, and it should make no noise of its own until
+    /// someone has said they want it to.
+    /// </summary>
+    public bool CueSoundsEnabled { get; set; }
+
+    /// <summary>
     /// When true, batch saves write straight to <see cref="DefaultSaveFolder"/> with no picker.
     /// Off by default: silently writing files to a folder the user did not just confirm is the
     /// kind of helpfulness that loses work.

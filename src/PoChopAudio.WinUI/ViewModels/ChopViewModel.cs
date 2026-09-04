@@ -5,6 +5,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PoChopAudio.Services.Chop;
+using PoChopAudio.Services.Dsp;
 using PoChopAudio.Shared;
 using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Models;
@@ -19,17 +20,25 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     private readonly AudioRecorderService _recorder;
     private readonly AudioPlayerService _player;
     private readonly AppSettingsService _settings;
+    private readonly AudioCueService _cues;
     private readonly Debouncer _debouncer = new(TimeSpan.FromMilliseconds(350));
     private readonly DispatcherQueue? _dispatcher = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource _cts = new();
 
     public ChopViewModel(
-        ChopService chop, AudioRecorderService recorder, AudioPlayerService player, AppSettingsService settings)
+        ChopService chop,
+        AudioRecorderService recorder,
+        AudioPlayerService player,
+        AppSettingsService settings,
+        AudioCueService cues)
     {
         _chop = chop;
         _recorder = recorder;
         _player = player;
         _settings = settings;
+        _cues = cues;
+        _cues.IsEnabled = settings.Current.CueSoundsEnabled;
+        settings.Changed += s => _cues.IsEnabled = s.CueSoundsEnabled;
 
         // Every callback below arrives on a background thread -- LevelUpdated on NAudio's capture
         // thread, ElapsedUpdated on a System.Timers.Timer thread, and the player's on its own.
@@ -60,10 +69,19 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         {
             if (ActivePlayingItem is not null)
             {
+                // The closing blip sounds here, once the clip has finished, so it marks the end
+                // rather than covering the tail of what was being judged.
+                var wasClip = ActivePlayingItem.PlayingSegmentIndex is not null;
+
                 ActivePlayingItem.IsPlaying = false;
                 ActivePlayingItem.PlayheadRatio = 0;
                 ActivePlayingItem.PlayingSegmentIndex = null;
                 ActivePlayingItem = null;
+
+                if (wasClip)
+                {
+                    _cues.Play(AudioCue.ClipEnd);
+                }
             }
         });
 
@@ -290,13 +308,25 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         if (!CanStartRecording) return;
 
         ErrorMessage = null;
-        for (int c = 3; c > 0; c--)
+
+        // The audible count-in is rendered as one buffer and started here, so its beats cannot
+        // drift; the visible numbers are then stepped alongside it. When cue sounds are off this
+        // degrades to exactly the silent countdown it replaced.
+        const int beats = 3;
+        const double bpm = 60;
+        _cues.PlayCountIn(beats, bpm);
+
+        for (var c = beats; c > 0; c--)
         {
             Countdown = c;
-            await Task.Delay(1000);
+            await Task.Delay(TimeSpan.FromSeconds(60.0 / bpm));
         }
+
         Countdown = 0;
 
+        // Nothing this class can make a sound with may do so from here until Stop: a cue that
+        // leaks into a take does not annoy the user, it corrupts their recording.
+        _cues.IsSuppressed = true;
         _recorder.Start();
         IsRecording = true;
     }
@@ -308,6 +338,8 @@ public partial class ChopViewModel : ObservableObject, IDisposable
 
         IsRecording = false;
         var wavBytes = _recorder.Stop();
+        _cues.IsSuppressed = false;
+
         if (wavBytes.Length == 0) return;
 
         var stem = string.IsNullOrWhiteSpace(RecordingName)
@@ -341,6 +373,93 @@ public partial class ChopViewModel : ObservableObject, IDisposable
             StatusMessage = string.Empty;
             NotifyCountProperties();
         }
+
+        _cues.Play(item.IsReady ? AudioCue.Success : AudioCue.Failure);
+        BatchCompleted?.Invoke(item.IsReady);
+    }
+
+    /// <summary>
+    /// Raised when a batch finishes, with whether it worked. The page uses it to fire the
+    /// celebration burst; the view model deliberately knows nothing about particles.
+    /// </summary>
+    public event Action<bool>? BatchCompleted;
+
+    /// <summary>
+    /// Shows or hides the frequency view for one file, building it on first use.
+    ///
+    /// <para>
+    /// Built on demand rather than during analysis: it reads the whole canonical WAV back off disk
+    /// and runs a few hundred FFTs, which is not work to do for every file in a batch on the chance
+    /// that someone looks at one of them.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    public async Task ToggleSpectrogramAsync(ChopFileItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (item.ShowSpectrogram)
+        {
+            item.ShowSpectrogram = false;
+            return;
+        }
+
+        if (item.Spectrogram is null)
+        {
+            item.IsBuildingSpectrogram = true;
+
+            try
+            {
+                var outcome = await Task.Run(
+                    () => _chop.GetSpectrogram(item.JobId, columns: 720, bins: 128), _cts.Token);
+
+                if (!outcome.IsSuccess)
+                {
+                    ErrorMessage = outcome.Message;
+                    return;
+                }
+
+                item.Spectrogram = outcome.Value;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                ErrorMessage = $"Could not build the frequency view: {exception.Message}";
+                return;
+            }
+            finally
+            {
+                item.IsBuildingSpectrogram = false;
+            }
+        }
+
+        item.ShowSpectrogram = true;
+    }
+
+    /// <summary>Moves playback to a position dragged on the waveform.</summary>
+    public void Seek(ChopFileItem item, double seconds)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (ActivePlayingItem == item && _player.IsPlaying)
+        {
+            _player.Seek(seconds);
+        }
+    }
+
+    /// <summary>
+    /// Plays a 1 kHz tone at -18 dBFS so the input meter can be read against a known level before a
+    /// take rather than after one.
+    /// </summary>
+    [RelayCommand]
+    public void PlayReferenceTone()
+    {
+        if (IsRecording)
+        {
+            return;
+        }
+
+        _cues.PlayReferenceTone();
+        StatusMessage = "Playing a 1 kHz reference tone at -18 dBFS.";
     }
 
     private async Task ResplitBatchAutoAsync()
@@ -451,6 +570,13 @@ public partial class ChopViewModel : ObservableObject, IDisposable
             ActivePlayingItem = item;
             item.IsPlaying = true;
             item.PlayingSegmentIndex = segment?.Index;
+
+            // Brackets the clip rather than playing over it: the blip finishes before the audio
+            // starts, and its partner sounds only once playback has stopped.
+            if (segment is not null)
+            {
+                _cues.Play(AudioCue.ClipStart);
+            }
 
             _player.Play(wavBytes);
         }

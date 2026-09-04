@@ -49,7 +49,7 @@ try {
         # resource index — and without it the app dies at startup with a stowed exception
         # (0xC000027B) inside Microsoft.UI.Xaml.dll. The build output has the .pri and every
         # self-contained Windows App SDK file, so it is the supported way to launch.
-        $exe = Join-Path $root "src/PoChopAudio.WinUI/bin/$Platform/Release/net10.0-windows10.0.19041.0/$rid/PoChopAudio.WinUI.exe"
+        $exe = Join-Path $root "src/PoChopAudio.WinUI/bin/$Platform/Release/net10.0-windows10.0.22621.0/$rid/PoChopAudio.WinUI.exe"
         if (-not (Test-Path $exe)) {
             throw "Built app not found at $exe."
         }

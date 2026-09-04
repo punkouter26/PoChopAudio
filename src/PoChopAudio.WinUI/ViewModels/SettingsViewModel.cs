@@ -3,8 +3,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using PoChopAudio.Services.Chop;
+using PoChopAudio.Services.Dsp;
 using PoChopAudio.Services.Cutout;
 using PoChopAudio.Shared;
+using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Services;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -30,6 +32,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ChopJobStore _jobs;
     private readonly CutoutModelOptions _model;
     private readonly FileLoggerProvider _log;
+    private readonly AudioCueService _cues;
 
     public SettingsViewModel(
         AppSettingsService settings,
@@ -38,8 +41,10 @@ public partial class SettingsViewModel : ObservableObject
         ChopJobStore jobs,
         CutoutModelOptions model,
         FileLoggerProvider log,
+        AudioCueService cues,
         IFaceLocator? faceLocator = null)
     {
+        _cues = cues;
         _settings = settings;
         _cutout = cutout;
         _picker = picker;
@@ -56,6 +61,7 @@ public partial class SettingsViewModel : ObservableObject
         };
         _defaultSaveFolder = settings.Current.DefaultSaveFolder;
         _saveWithoutAsking = settings.Current.SaveWithoutAsking;
+        _cueSoundsEnabled = settings.Current.CueSoundsEnabled;
     }
 
     public ObservableCollection<DiagnosticSection> Diagnostics { get; } = [];
@@ -70,6 +76,9 @@ public partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _saveWithoutAsking;
+
+    [ObservableProperty]
+    private bool _cueSoundsEnabled;
 
     [ObservableProperty]
     private string _scratchSizeText = "—";
@@ -108,6 +117,30 @@ public partial class SettingsViewModel : ObservableObject
     {
         _settings.Update(s => s.SaveWithoutAsking = value);
     }
+
+    partial void OnCueSoundsEnabledChanged(bool value)
+    {
+        _settings.Update(s => s.CueSoundsEnabled = value);
+        _cues.IsEnabled = value;
+
+        if (value)
+        {
+            // Play the thing being switched on, so the choice is answered immediately rather than
+            // three screens later at the start of a take.
+            _cues.Play(AudioCue.Success);
+        }
+    }
+
+    /// <summary>
+    /// Whether Windows currently wants animation. Reported rather than offered as a setting: this
+    /// is a system-wide accessibility choice, and an app-level override would be the app deciding
+    /// it knows better.
+    /// </summary>
+    public bool AnimationsEnabled => Motion.AnimationsEnabled;
+
+    public string MotionStatusText => Motion.AnimationsEnabled
+        ? "Windows has animations on, so the gradients, transitions and bursts are running."
+        : "Windows has animations off, so motion is disabled here too. Backgrounds stay still and nothing bursts.";
 
     partial void OnDefaultSaveFolderChanged(string? value)
     {

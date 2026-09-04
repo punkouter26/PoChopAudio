@@ -117,6 +117,35 @@
                 </StackPanel>
             </Border>
 
+            <!-- ── Sound and motion ─────────────────────────────────────────── -->
+            <TextBlock Text="Sound and motion" Style="{StaticResource SectionHeading}" />
+
+            <Border Style="{StaticResource SettingsCard}">
+                <StackPanel Spacing="12">
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.CueSoundsEnabled, Mode=TwoWay}"
+                                  OnContent="Cue sounds on"
+                                  OffContent="Cue sounds off"
+                                  MinWidth="0"
+                                  AutomationProperties.Name="Play synthesised count-in and completion sounds" />
+
+                    <TextBlock TextWrapping="Wrap" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="An audible count-in before recording, a chime when a batch finishes, and a quiet blip either side of a clip you audition. All generated on the fly — no sound files are shipped. Nothing ever sounds while the microphone is open, so a cue cannot end up inside a take." />
+
+                    <MenuFlyoutSeparator />
+
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Motion" FontWeight="SemiBold" />
+                        <TextBlock Text="{x:Bind ViewModel.MotionStatusText}"
+                                   TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="This follows the Windows &quot;Show animations&quot; setting rather than adding one of its own."
+                                   TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- ── Storage ──────────────────────────────────────────────────── -->
             <TextBlock Text="Storage" Style="{StaticResource SectionHeading}" />
 

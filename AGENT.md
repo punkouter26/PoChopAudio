@@ -24,6 +24,10 @@ src/PoChopAudio.Services/     Host-agnostic engine room. No UI, no hosting frame
   Chop/SilenceTrimmer         Leading/trailing silence trim, in frames
   Chop/ClipExporter           WAV slicing, UniqueStems, two-pass normalized export, ZIP
   Chop/LoudnessMeter          ITU-R BS.1770-4 K-weighting + gated integrated loudness
+  Dsp/Fft                     Radix-2 FFT and a Hann window; no numerics dependency
+  Dsp/Spectrogram             Log-spaced, fixed-window time/frequency grid for drawing
+  Dsp/CueSynth                Count-in, chimes and a -18 dBFS reference tone, as samples
+  Dsp/ParticleField           Fixed-capacity particle simulation, pure and frame-rate independent
   Chop/ClipProcessor          Export maths: gain decision and fade curve, no I/O
   Chop/ChopJobStore           Temp-dir job scratch space, 2 h TTL, lock-file liveness
   Cutout/CutoutService        CutOutAsync: decode, mask, clean, head-crop, encode — one call
@@ -45,6 +49,14 @@ src/PoChopAudio.WinUI/        The app. Unpackaged, self-contained Windows App SD
   Services/AudioRecorderService, AudioPlayerService, ExportService
   Services/ServiceOutcomeExtensions  .OrThrow(), the Outcome-to-exception seam
   Controls/WrapPanel          WinUI 3 ships none; the knob row needed one
+  Controls/WaveformView       Win2D: segment bands, amplitude trace or spectrogram, compositor playhead
+  Controls/InputScopeView     Win2D rolling scope with peak-hold ballistics
+  Controls/BeforeAfterView    Win2D: checkerboard, edge outline, draggable wipe
+  Controls/ShaderBackdrop     Runs AuroraShader behind a page
+  Controls/ParticleBurst      Draws ParticleField; idle unless something is alive
+  Shaders/AuroraShader        HLSL mesh gradient, compiled by ComputeSharp at build time
+  Services/AudioCueService    Plays the synthesised cues on their own output device
+  Common/Motion               Composition animation helpers; honours reduced-motion
   Content/Models/u2netp.onnx  Shipped with the app (optional; absent = cutout unavailable)
 tests/PoChopAudio.Unit/       Pure logic: detector, exporters, decoder, edge processor
 tests/PoChopAudio.Integration/  Multi-component behaviour against the real services
@@ -355,6 +367,70 @@ there were none at all before. Three of those needed more than a literal string:
 
 Status and error lines are `LiveSetting="Polite"` and `"Assertive"` respectively — a red line that
 appears silently reaches nobody who is not already watching it.
+
+## Graphics and sound
+
+The pictures are drawn on the GPU through Win2D, and the sounds are generated rather than shipped.
+
+### Why the waveform stopped being XAML elements
+
+`WaveformView` used to build one `Line` element per bar — about 270 at card width — plus a `Border`
+and `TextBlock` per segment, cleared and rebuilt on every resize and every re-split. Ten files on
+screen put several thousand live elements in the visual tree to show a picture that is not
+interactive at the element level and never needed to be. It is now a single `CanvasControl`.
+
+That change is what made the rest possible: a spectrogram, a wipe slider and an edge-detection
+outline are all trivial once there is a drawing surface, and all impossible on a pile of `Line`s.
+
+### The spectrogram
+
+`Spectrogram.Build` produces a magnitude grid the control uploads as one bitmap and lets the GPU
+filter. Two choices worth keeping:
+
+- **Bins are log-spaced.** An ear hears octaves, and a linear axis spends four fifths of its height
+  on 5–20 kHz where a spoken take carries almost nothing.
+- **Magnitudes are normalised against a fixed dB window**, not against the loudest bin present. Two
+  recordings of the same voice then look the same, instead of each being auto-levelled into looking
+  equally busy.
+
+Peak rather than mean within each band, because a narrow tone inside a wide high-frequency band
+would otherwise be averaged into invisibility by its silent neighbours.
+
+### Sound the app makes itself
+
+`CueSynth` renders every cue as decaying sines. In an app where the user is judging recorded audio a
+cue must be instantly distinguishable from the material, and a pure tone is about as far from a
+voice or a footstep as a sound gets; a sampled "ding" would be one more thing to mistake for
+content.
+
+**The suppression rule is the whole design.** `AudioCueService.IsSuppressed` is set while the
+microphone is open and every entry point checks it, because a tick that leaks into a take does not
+annoy the user — it corrupts their recording. Clip-audition blips bracket the clip (before it
+starts, after it stops) rather than playing over it. The count-in deliberately ignores suppression:
+it runs before the microphone opens, which is the one moment making a sound is the entire point.
+
+The count-in is rendered as one buffer rather than sequenced with a timer, because a count-in whose
+beats drift is worse than none, and sample offsets cannot drift.
+
+### Two things that will crash the app
+
+Both were hit building this, and both are silent until runtime:
+
+1. **`CanvasAnimatedControl` as an overlay.** It is a `SwapChainPanel` underneath, composites in its
+   own layer, and paints over the sibling XAML it is supposed to sit behind — the page rendered as
+   nothing but the gradient. `CanvasControl` composites in the visual tree; animate it with
+   `CompositionTarget.Rendering`.
+2. **XAML properties from a Win2D render thread.** `CanvasAnimatedControl.Draw` is not on the UI
+   thread, and reading `ActualTheme`, a dependency property or `UISettings` there throws
+   `RPC_E_WRONG_THREAD` — the app died at startup with `0xC000027B` before a single log line. What
+   the drawing code needs is snapshotted on the UI thread into plain fields.
+
+### Motion is a system choice
+
+Everything animated routes through `Common/Motion.cs`, which reads the Windows "Show animations"
+setting fresh each time. Windows exposes that setting because motion makes some people ill; an app
+that animates anyway has taken the choice away from them. The particle field additionally refuses to
+run while recording — CPU contention during capture shows up as dropped frames in someone's take.
 
 ## Deliberately absent
 

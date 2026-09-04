@@ -68,7 +68,7 @@ dotnet build src/PoChopAudio.WinUI/PoChopAudio.WinUI.csproj -c Release -p:Platfo
 Then run the exe from **`bin`, never `publish`**:
 
 ```
-src\PoChopAudio.WinUI\bin\ARM64\Release\net10.0-windows10.0.19041.0\win-arm64\PoChopAudio.WinUI.exe
+src\PoChopAudio.WinUI\bin\ARM64\Release\net10.0-windows10.0.22621.0\win-arm64\PoChopAudio.WinUI.exe
 ```
 
 **Check the architecture before you build.** `Platforms` is `x86;x64;ARM64` and the output path
@@ -186,6 +186,40 @@ the caller decides where they run.
   [Controls/WrapPanel.cs](src/PoChopAudio.WinUI/Controls/WrapPanel.cs) rather than a toolkit
   dependency.
 
+### Graphics and sound
+
+Two packages carry this, pinned centrally like everything else:
+
+- **Win2D** (`Microsoft.Graphics.Win2D`) — Direct2D for WinUI 3. The waveform, spectrogram, live
+  input scope, cut-out preview and confetti all draw through a `CanvasControl`.
+- **ComputeSharp.D2D1.WinUI** — HLSL pixel shaders written as C#. `Shaders/AuroraShader.cs` is
+  real HLSL; the source generator compiles it at build time, which is why `AllowUnsafeBlocks` is on
+  (the generator emits unsafe marshalling code; nothing hand-written here uses it).
+
+**Win2D is pinned to 1.3.2, not the latest.** 1.4.0 pulls `Microsoft.WindowsAppSDK.WinUI` 1.8
+transitively, which collides with the pinned WindowsAppSDK 1.6 and breaks the build outright with a
+double-import and an MSIX targets failure. Do not bump it without moving the whole SDK.
+
+**`TargetPlatformVersion` is 22621**, raised from 19041 so ComputeSharp's assets resolve at all —
+below that NuGet silently contributes nothing and the types simply are not there.
+`TargetPlatformMinVersion` stays 17763, so the app still runs on older Windows. Note the output
+path changed with it.
+
+Two rules that are not optional:
+
+1. **`CanvasAnimatedControl` cannot be used as a page overlay.** It is backed by a `SwapChainPanel`,
+   which composites in its own layer and paints straight over sibling XAML — the entire page went
+   blank. Every surface here is a `CanvasControl`, animated where needed by
+   `CompositionTarget.Rendering`.
+2. **Never touch a XAML property from a Win2D render thread.** `CanvasAnimatedControl.Draw` runs off
+   the UI thread, and reading `ActualTheme`, a dependency property or `UISettings` there throws
+   `RPC_E_WRONG_THREAD` and takes the process down at startup with `0xC000027B`. Snapshot what the
+   drawing code needs on the UI thread first.
+
+All motion routes through `Common/Motion.cs`, which honours the Windows "Show animations" setting.
+Audio cues are synthesised by `Services/Dsp/CueSynth.cs` and played by `AudioCueService`, which is
+**suppressed while the microphone is open** — a cue that leaks into a take corrupts the recording.
+
 ### Settings, and what persists
 
 Exactly three things survive a restart — theme, default save folder, and whether a batch save may
@@ -231,7 +265,7 @@ queue grows without bound and the preview drifts seconds behind the room.
 
 | Project | Scope | State |
 | --- | --- | --- |
-| `tests/PoChopAudio.Unit` | Pure logic — detector, exporters, decoder, edge processor, head finder, job store | 105 tests, all passing. Add here first |
+| `tests/PoChopAudio.Unit` | Pure logic — detector, exporters, decoder, edge processor, head finder, job store, DSP | 139 tests, all passing. Add here first |
 | `tests/PoChopAudio.Integration` | Multi-component behaviour against the real services | 20 tests, all passing |
 
 Both reference `Services` and `Shared` directly. `Integration` used to drive the HTTP pipeline

@@ -8,7 +8,50 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+                Glass for the cards. Acrylic rather than a flat fill because the pages now sit on a
+                shader-driven gradient: an opaque card over it reads as a hole punched in the page,
+                where a translucent one lets the colour beneath show through and the two look like
+                one surface.
+
+                Defined per theme rather than once with a ThemeResource tint, because a brush
+                created in a shared dictionary resolves its colours a single time and would keep
+                the theme it was first built under.
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <AcrylicBrush x:Key="GlassCardBrush"
+                                  TintColor="#FFFFFF"
+                                  TintOpacity="0.35"
+                                  TintLuminosityOpacity="0.85"
+                                  FallbackColor="#FAFAFA" />
+                    <AcrylicBrush x:Key="GlassPanelBrush"
+                                  TintColor="#FFFFFF"
+                                  TintOpacity="0.18"
+                                  TintLuminosityOpacity="0.78"
+                                  FallbackColor="#F3F3F3" />
+                </ResourceDictionary>
+
+                <ResourceDictionary x:Key="Dark">
+                    <AcrylicBrush x:Key="GlassCardBrush"
+                                  TintColor="#1B1F27"
+                                  TintOpacity="0.45"
+                                  TintLuminosityOpacity="0.80"
+                                  FallbackColor="#202126" />
+                    <AcrylicBrush x:Key="GlassPanelBrush"
+                                  TintColor="#12151B"
+                                  TintOpacity="0.30"
+                                  TintLuminosityOpacity="0.72"
+                                  FallbackColor="#1A1C21" />
+                </ResourceDictionary>
+
+                <!-- High contrast must stay opaque: translucency destroys the guaranteed ratios. -->
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="GlassCardBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="GlassPanelBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
-

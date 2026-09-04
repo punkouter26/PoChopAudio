@@ -14,6 +14,10 @@
         <common:LabelWithValueConverter x:Key="RowLabel" />
     </Page.Resources>
 
+    <Grid>
+        <!-- GPU gradient, behind everything, non-interactive and invisible to assistive tech. -->
+        <controls:ShaderBackdrop Intensity="0.5" />
+
     <!-- Horizontal scrolling stays Disabled so content can never measure wider than the viewport. -->
     <ScrollViewer Padding="24,16,24,32"
                   HorizontalScrollMode="Disabled"
@@ -47,7 +51,7 @@
             </Grid>
 
             <!-- Step 1: record. The whole point of the page, so it gets the space. -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="24,20">
                 <StackPanel Spacing="14">
@@ -59,7 +63,13 @@
                              Text="{x:Bind ViewModel.RecordingName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              IsEnabled="{x:Bind ViewModel.IsRecording, Mode=OneWay, Converter={StaticResource InvertBool}}" />
 
-                    <controls:LevelMeter x:Name="MicLevelMeter" />
+                    <controls:InputScopeView x:Name="MicScope" />
+
+                    <HyperlinkButton Content="Play a 1 kHz reference tone"
+                                     FontSize="11" HorizontalAlignment="Center" Padding="4,0"
+                                     Command="{x:Bind ViewModel.PlayReferenceToneCommand}"
+                                     AutomationProperties.Name="Play a 1 kHz reference tone at minus 18 dBFS"
+                                     ToolTipService.ToolTip="A known level to check the meter against before recording" />
 
                     <!-- Record / Stop. One big target; the two states swap in place. -->
                     <Button x:Name="RecordBtn"
@@ -133,7 +143,7 @@
                 record card, which reads as something failing rather than nothing having
                 happened yet. This says what to do instead.
             -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="24"
                     Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}">
@@ -180,7 +190,7 @@
             <ItemsControl ItemsSource="{x:Bind ViewModel.Files}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:ChopFileItem">
-                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        <Border Background="{ThemeResource GlassCardBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
                             <StackPanel Spacing="10">
@@ -205,12 +215,24 @@
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
 
-                                    <Button Grid.Column="1" Content="Play all" Click="OnPlayOriginalClicked"
-                                            VerticalAlignment="Center"
-                                            AutomationProperties.Name="{x:Bind FileName, Converter={StaticResource RowLabel}, ConverterParameter=Play the whole recording of}" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <Button Click="OnToggleSpectrogramClicked"
+                                                AutomationProperties.Name="{x:Bind ViewModeLabel, Mode=OneWay}"
+                                                ToolTipService.ToolTip="Switch between the amplitude waveform and a frequency view">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <FontIcon Glyph="{x:Bind ViewModeGlyph, Mode=OneWay}" FontSize="13" />
+                                                <TextBlock Text="{x:Bind ViewModeLabel, Mode=OneWay}" FontSize="12" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Content="Play all" Click="OnPlayOriginalClicked"
+                                                AutomationProperties.Name="{x:Bind FileName, Converter={StaticResource RowLabel}, ConverterParameter=Play the whole recording of}" />
+                                    </StackPanel>
                                 </Grid>
 
-                                <controls:WaveformView Item="{x:Bind}" SegmentClicked="OnWaveformSegmentClicked" />
+                                <controls:WaveformView Item="{x:Bind}"
+                                                       SegmentClicked="OnWaveformSegmentClicked"
+                                                       Scrubbed="OnWaveformScrubbed"
+                                                       Loaded="OnCardVisualLoaded" />
 
                                 <!-- One row per detected sound. Mode=OneWay matters: x:Bind inside a
                                      DataTemplate is OneTime by default, so this bound the empty
@@ -443,4 +465,8 @@
 
         </StackPanel>
     </ScrollViewer>
+
+        <!-- Celebration layer. Idle until a batch finishes, and silent while recording. -->
+        <controls:ParticleBurst x:Name="Confetti" />
+    </Grid>
 </Page>

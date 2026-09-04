@@ -63,6 +63,10 @@ public partial class App : Application
         // Hardware / Media Services
         services.AddSingleton<AudioRecorderService>();
         services.AddSingleton<AudioPlayerService>();
+
+        // Its own output device, separate from clip audition: a count-in tick must never tear down
+        // the take someone is in the middle of listening to.
+        services.AddSingleton<AudioCueService>();
         services.AddSingleton<CameraService>();
         services.AddSingleton<ExportService>();
 

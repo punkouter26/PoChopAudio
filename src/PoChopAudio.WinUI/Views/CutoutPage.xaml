@@ -14,6 +14,9 @@
         <common:LabelWithValueConverter x:Key="RowLabel" />
     </Page.Resources>
 
+    <Grid>
+        <controls:ShaderBackdrop Intensity="0.45" />
+
     <ScrollViewer Padding="24,16,24,32">
         <StackPanel Spacing="16" MaxWidth="1100" HorizontalAlignment="Stretch">
 
@@ -25,12 +28,14 @@
             </StackPanel>
 
             <!-- ── Camera ───────────────────────────────────────────────────── -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="20">
                 <StackPanel Spacing="16">
 
                     <Grid Height="380" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}">
+                        <Rectangle x:Name="ShutterFlash" Fill="White" Opacity="0" IsHitTestVisible="False"
+                                   AutomationProperties.AccessibilityView="Raw" />
                         <Image x:Name="PreviewImage" Stretch="Uniform"
                                AutomationProperties.Name="Live camera viewfinder"
                                Visibility="{x:Bind ViewModel.IsCameraRunning, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
@@ -43,7 +48,8 @@
                         </StackPanel>
                     </Grid>
 
-                    <Button Content="TAKE PHOTO" Style="{ThemeResource AccentButtonStyle}"
+                    <Button x:Name="TakePhotoButton" Content="TAKE PHOTO" Style="{ThemeResource AccentButtonStyle}"
+                            Click="OnTakePhotoVisualFeedback"
                             HorizontalAlignment="Stretch" Height="56" FontSize="16" FontWeight="SemiBold"
                             AutomationProperties.Name="Take a photo and remove its background"
                             Command="{x:Bind ViewModel.TakePhotoCommand}"
@@ -160,7 +166,7 @@
             </Expander>
 
             <!-- An empty results area reads as a bug; saying so is cheaper than wondering. -->
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource GlassCardBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1" CornerRadius="8" Padding="24"
                     Visibility="{x:Bind ViewModel.HasFiles, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}">
@@ -188,7 +194,7 @@
             <ItemsControl ItemsSource="{x:Bind ViewModel.Files}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:CutoutFileItem">
-                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        <Border Background="{ThemeResource GlassCardBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,12">
                             <StackPanel Spacing="12">
@@ -209,7 +215,7 @@
                                             AutomationProperties.Name="{x:Bind FileName, Mode=OneWay, Converter={StaticResource RowLabel}, ConverterParameter=Save as a PNG:}" />
                                 </Grid>
 
-                                <controls:BeforeAfterView Item="{x:Bind}" />
+                                <controls:BeforeAfterView Item="{x:Bind}" Loaded="OnCardVisualLoaded" />
                             </StackPanel>
                         </Border>
                     </DataTemplate>
@@ -218,4 +224,8 @@
 
         </StackPanel>
     </ScrollViewer>
+
+        <!-- Fires once per captured frame, as a shutter acknowledgement. -->
+        <controls:ParticleBurst x:Name="Confetti" />
+    </Grid>
 </Page>

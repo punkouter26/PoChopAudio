@@ -3,7 +3,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using PoChopAudio.Shared;
+using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Controls;
+using PoChopAudio.WinUI.Services;
 using PoChopAudio.WinUI.Models;
 using PoChopAudio.WinUI.ViewModels;
 using Windows.ApplicationModel.DataTransfer;
@@ -24,16 +26,20 @@ public sealed partial class ChopPage : Page
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // LevelMeter is driven imperatively rather than by binding -- it repaints a bar, a dB
-        // readout and a clip badge from one update. Nothing was calling UpdateLevel, so the meter
-        // sat at its -inf dB default for the whole take; this is what connects it to the recorder.
+        // InputScopeView is driven imperatively rather than by binding: it paints a scrolling trace,
+        // a peak-hold marker and a numeric readout from two different feeds - level figures on the
+        // view model, and raw decimated samples straight off the capture thread.
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        ViewModel.BatchCompleted += OnBatchCompleted;
+        App.GetService<AudioRecorderService>().ScopeSamplesAvailable += OnScopeSamples;
         await ViewModel.InitializeAsync();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        ViewModel.BatchCompleted -= OnBatchCompleted;
+        App.GetService<AudioRecorderService>().ScopeSamplesAvailable -= OnScopeSamples;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -43,13 +49,55 @@ public sealed partial class ChopPage : Page
             case nameof(ChopViewModel.PeakDb):
             case nameof(ChopViewModel.RmsDb):
             case nameof(ChopViewModel.IsClipping):
-                MicLevelMeter.UpdateLevel(ViewModel.PeakDb, ViewModel.RmsDb, ViewModel.IsClipping);
+                MicScope.UpdateLevel(ViewModel.PeakDb, ViewModel.RmsDb, ViewModel.IsClipping);
                 break;
 
-            case nameof(ChopViewModel.IsRecording) when !ViewModel.IsRecording:
-                MicLevelMeter.Reset();
+            case nameof(ChopViewModel.IsRecording):
+                // Confetti while the microphone is open would be CPU taken from the capture path,
+                // which shows up as dropped frames in someone's take.
+                Confetti.IsSuppressed = ViewModel.IsRecording;
+
+                if (!ViewModel.IsRecording)
+                {
+                    MicScope.Reset();
+                }
+
                 break;
         }
+    }
+
+    /// <summary>Pushes captured audio into the live scope. Arrives on the capture thread.</summary>
+    private void OnScopeSamples(float[] points) => MicScope.Push(points);
+
+    private void OnBatchCompleted(bool succeeded)
+    {
+        if (succeeded)
+        {
+            Confetti.Burst();
+        }
+    }
+
+    /// <summary>Gives each card its entrance and repositioning animations as it is realised.</summary>
+    private void OnCardVisualLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Parent: FrameworkElement card })
+        {
+            Motion.EnableListItemAnimations(card);
+        }
+    }
+
+    private async void OnToggleSpectrogramClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: ChopFileItem item })
+        {
+            Motion.Pulse((Button)sender);
+            await ViewModel.ToggleSpectrogramAsync(item);
+        }
+    }
+
+    private void OnWaveformScrubbed(ChopFileItem item, double seconds)
+    {
+        ViewModel.Seek(item, seconds);
     }
 
     public int ExportNormalizeIndex

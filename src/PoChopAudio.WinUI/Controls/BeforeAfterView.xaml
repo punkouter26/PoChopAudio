@@ -14,28 +14,31 @@
                 The checkerboard is the point: the previous version put the cutout on a flat dark
                 panel, which made translucent hair and feathered edges invisible - exactly the thing
                 the fine-tune sliders exist to adjust.
+
+                Created in code and inserted here rather than declared in XAML, because releasing it
+                on unload is permanent and the results list now virtualizes and reuses these cards.
+                See EnsureSurface in the code-behind.
             -->
-            <win2d:CanvasControl x:Name="Surface" Draw="OnDraw" ClearColor="Transparent" />
 
             <Border Background="#99000000" CornerRadius="4" Padding="6,2"
                     HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"
                     IsHitTestVisible="False">
-                <TextBlock Text="Original" FontSize="11" Foreground="White" FontWeight="SemiBold" />
+                <TextBlock Text="Original" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="White" FontWeight="SemiBold" />
             </Border>
 
             <Border Background="#99000000" CornerRadius="4" Padding="6,2"
                     HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10"
                     IsHitTestVisible="False">
-                <TextBlock Text="Cut out" FontSize="11" Foreground="White" FontWeight="SemiBold" />
+                <TextBlock Text="Cut out" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="White" FontWeight="SemiBold" />
             </Border>
 
             <StackPanel Orientation="Horizontal" Spacing="10"
                         HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="10">
-                <ToggleButton x:Name="EdgeToggle" Content="Edge" FontSize="11" Padding="8,2"
+                <ToggleButton x:Name="EdgeToggle" Content="Edge" FontSize="12" Padding="8,2"
                               Checked="OnRedrawRequested" Unchecked="OnRedrawRequested"
                               AutomationProperties.Name="Highlight the edge of the cut-out mask"
                               ToolTipService.ToolTip="Outline exactly where the mask boundary landed" />
-                <ToggleButton x:Name="SplitToggle" Content="Split" FontSize="11" Padding="8,2"
+                <ToggleButton x:Name="SplitToggle" Content="Split" FontSize="12" Padding="8,2"
                               IsChecked="True"
                               Checked="OnRedrawRequested" Unchecked="OnRedrawRequested"
                               AutomationProperties.Name="Compare before and after with a wipe slider"

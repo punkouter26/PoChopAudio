@@ -1,5 +1,3 @@
-using PoChopAudio.Shared;
-
 namespace PoChopAudio.Services.Cutout;
 
 /// <summary>

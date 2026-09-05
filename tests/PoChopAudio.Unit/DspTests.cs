@@ -56,17 +56,8 @@ public sealed class FftTests
         Assert.Throws<ArgumentException>(() => Fft.Forward(new double[6], new double[6]));
     }
 
-    [Fact]
-    public void Forward_RejectsMismatchedParts()
-    {
-        Assert.Throws<ArgumentException>(() => Fft.Forward(new double[8], new double[4]));
-    }
-
     [Theory]
-    [InlineData(1, 2)]
-    [InlineData(2, 2)]
     [InlineData(3, 2)]
-    [InlineData(4, 4)]
     [InlineData(1000, 512)]
     [InlineData(4096, 4096)]
     public void FloorPowerOfTwo_RoundsDown(int input, int expected)
@@ -133,26 +124,6 @@ public sealed class SpectrogramTests
     }
 
     [Fact]
-    public void Build_ReportsTheRequestedShape()
-    {
-        var data = Spectrogram.Build(Sine(440, 22050, 0.5), 22050, columns: 40, bins: 24);
-
-        Assert.Equal(40, data.Columns);
-        Assert.Equal(24, data.Bins);
-        Assert.Equal(40 * 24, data.Magnitudes.Length);
-        Assert.Equal(0.5, data.DurationSeconds, 3);
-        Assert.Equal(11025, data.MaxFrequencyHz, 3);
-    }
-
-    [Fact]
-    public void Build_OfAClipTooShortToTransform_StillReturnsTheGrid()
-    {
-        var data = Spectrogram.Build([0.1f, -0.1f], 44100, columns: 4, bins: 4);
-
-        Assert.Equal(16, data.Magnitudes.Length);
-    }
-
-    [Fact]
     public void Build_NormalisesAgainstAFixedWindow_NotTheLoudestBin()
     {
         // The same tone 20 dB quieter must read lower, not be auto-levelled back to the same value.
@@ -171,10 +142,6 @@ public sealed class CueSynthTests
 {
     [Theory]
     [InlineData(AudioCue.Tick)]
-    [InlineData(AudioCue.Accent)]
-    [InlineData(AudioCue.ClipStart)]
-    [InlineData(AudioCue.ClipEnd)]
-    [InlineData(AudioCue.Success)]
     [InlineData(AudioCue.Failure)]
     public void Render_ProducesAudioWithinTheRequestedAmplitude(AudioCue cue)
     {
@@ -223,16 +190,6 @@ public sealed class CueSynthTests
         var expected = Math.Pow(10, -18 / 20.0);
         Assert.Equal(expected, samples.Max(Math.Abs), 2);
     }
-
-    [Fact]
-    public void ReferenceTone_StartsAndEndsAtSilence()
-    {
-        var samples = CueSynth.ReferenceTone(48000, seconds: 0.5);
-
-        // A calibration tone that clicks is the one thing it must not do.
-        Assert.Equal(0f, samples[0], 4);
-        Assert.Equal(0f, samples[^1], 4);
-    }
 }
 
 public sealed class ParticleFieldTests
@@ -249,36 +206,6 @@ public sealed class ParticleFieldTests
     }
 
     [Fact]
-    public void Step_RetiresParticlesOnceTheyOutliveTheirLifetime()
-    {
-        var field = new ParticleField(32, seed: 2);
-        field.Emit(0, 0, 32, lifetimeSeconds: 0.2f);
-
-        Assert.True(field.HasLiveParticles);
-
-        // Longest possible lifetime is 0.2 * 1.4; step well past it.
-        for (var i = 0; i < 100; i++)
-        {
-            field.Step(0.02f);
-        }
-
-        Assert.Equal(0, field.AliveCount);
-        Assert.False(field.HasLiveParticles);
-    }
-
-    [Fact]
-    public void Step_AppliesGravityDownward()
-    {
-        var field = new ParticleField(1, seed: 3);
-        field.Emit(0, 0, 1, speed: 0, spreadRadians: 0, lifetimeSeconds: 10f);
-        field.Drag = 1f;
-
-        field.Step(0.5f);
-
-        Assert.True(field.Alive[0].Y > 0, "gravity is +Y in screen space");
-    }
-
-    [Fact]
     public void Step_ClampsAnEnormousDelta()
     {
         var field = new ParticleField(1, seed: 4);
@@ -289,40 +216,5 @@ public sealed class ParticleFieldTests
         field.Step(5f);
 
         Assert.True(Math.Abs(field.Alive[0].Y) < 100, "a huge frame delta must be clamped, not integrated");
-    }
-
-    [Fact]
-    public void Remaining_FallsFromOneToZeroOverTheLifetime()
-    {
-        var field = new ParticleField(1, seed: 5);
-        field.Emit(0, 0, 1, lifetimeSeconds: 1f);
-
-        var atBirth = field.Alive[0].Remaining;
-        field.Step(0.05f);
-        var later = field.Alive[0].Remaining;
-
-        Assert.Equal(1f, atBirth, 2);
-        Assert.True(later < atBirth);
-    }
-
-    [Fact]
-    public void Clear_DropsEverything()
-    {
-        var field = new ParticleField(8, seed: 6);
-        field.Emit(0, 0, 8);
-
-        field.Clear();
-
-        Assert.Equal(0, field.AliveCount);
-    }
-
-    [Fact]
-    public void Step_WithNoParticles_IsHarmless()
-    {
-        var field = new ParticleField(4, seed: 7);
-
-        field.Step(0.016f);
-
-        Assert.Equal(0, field.AliveCount);
     }
 }

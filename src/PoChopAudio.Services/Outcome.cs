@@ -1,14 +1,12 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace PoChopAudio.Services;
 
 /// <summary>
-/// Why a service call produced no value. These are domain reasons, not HTTP status codes — the API
-/// maps them to statuses and a desktop host maps them to UI state, so neither meaning is baked in.
+/// Why a service call produced no value. These are domain reasons the UI turns into an error
+/// message; no transport meaning is baked in.
 /// </summary>
 public enum OutcomeFailure
 {
-    /// <summary>The job expired, was never received, or the requested clip does not exist.</summary>
+    /// <summary>The recording is no longer loaded, or the requested clip does not exist.</summary>
     NotFound,
 
     /// <summary>One or more supplied values are out of range. See <see cref="Outcome{T}.Errors"/>.</summary>
@@ -32,8 +30,8 @@ public enum OutcomeFailure
 
 /// <summary>
 /// The result of a service call: a value, or a reason there isn't one. Expected failures travel on
-/// the normal return path rather than as exceptions, because both hosts need to render them and
-/// neither treats an expired job as exceptional.
+/// the normal return path rather than as exceptions — a file the user picked that will not decode
+/// is an outcome to render, not an exception to catch.
 /// </summary>
 public sealed class Outcome<T>
 {
@@ -66,12 +64,6 @@ public sealed class Outcome<T>
     public T Value => Failure is null
         ? _value!
         : throw new InvalidOperationException($"The call failed with {Failure}; there is no value to read.");
-
-    public bool TryGetValue([MaybeNullWhen(false)] out T value)
-    {
-        value = _value!;
-        return Failure is null;
-    }
 
     public static Outcome<T> Ok(T value) => new(value, null, string.Empty, NoErrors);
 

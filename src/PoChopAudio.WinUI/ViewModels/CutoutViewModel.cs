@@ -30,6 +30,13 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<CutoutFileItem> Files { get; } = [];
 
+    /// <summary>
+    /// The window file pickers hang off. Set by the page once it is loaded, because
+    /// <c>App.MainWindow</c> does not exist yet while the page is being constructed. Holding it
+    /// here is what lets the save buttons bind commands instead of Click handlers.
+    /// </summary>
+    public Window? Host { get; set; }
+
     /// <summary>The fine-tune knobs. Changing them does nothing until Re-apply is pressed.</summary>
     public CutoutTuning Tuning { get; } = new();
 
@@ -40,13 +47,21 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     private string? _errorMessage;
 
     [ObservableProperty]
-    private bool _isCameraRunning;
-
-    [ObservableProperty]
     private bool _isCapturing;
 
     /// <summary>The live camera. The page binds its frames straight to a SoftwareBitmapSource.</summary>
     public CameraService Camera => _camera;
+
+    /// <summary>
+    /// Whether the viewfinder is live. Deliberately a projection of <see cref="CameraService"/>'s
+    /// own flag rather than a second copy of it: when this was an <c>[ObservableProperty]</c> the
+    /// two drifted apart the moment anything stopped the camera without going through
+    /// <see cref="StopCameraAsync"/>. <see cref="StartCameraAsync"/> then saw "already running",
+    /// returned early, and the page bound its <c>Image</c> to a reader that had been disposed —
+    /// which took the process down with RO_E_CLOSED on the second visit to this page. One owner,
+    /// no possible disagreement.
+    /// </summary>
+    public bool IsCameraRunning => _camera.IsRunning;
 
     public bool HasFiles => Files.Count > 0;
 
@@ -58,20 +73,31 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     {
         if (IsCameraRunning) return true;
 
-        if (await _camera.StartAsync())
+        try
         {
-            IsCameraRunning = true;
-            return true;
+            if (await _camera.StartAsync())
+            {
+                OnPropertyChanged(nameof(IsCameraRunning));
+                return true;
+            }
+        }
+        finally
+        {
+            OnPropertyChanged(nameof(IsCameraRunning));
         }
 
         ErrorMessage = "Could not start the camera. Check that one is connected and that this app has camera permission.";
         return false;
     }
 
+    /// <summary>
+    /// The only way the page may stop the camera. Calling <c>Camera.StopAsync()</c> directly is
+    /// what caused the crash described on <see cref="IsCameraRunning"/>.
+    /// </summary>
     public async Task StopCameraAsync()
     {
         await _camera.StopAsync();
-        IsCameraRunning = false;
+        OnPropertyChanged(nameof(IsCameraRunning));
     }
 
     /// <summary>
@@ -119,12 +145,14 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public async Task SaveAllToFolderAsync(Window window)
+    public async Task SaveAllToFolderAsync()
     {
+        if (Host is null) return;
+
         var ready = Files.Where(f => f.IsReady).ToList();
         if (ready.Count == 0) return;
 
-        var folderPath = await ExportService.ResolveBatchFolderAsync(window, _settings);
+        var folderPath = await ExportService.ResolveBatchFolderAsync(Host, _settings);
         if (string.IsNullOrEmpty(folderPath)) return;
 
         IsBusy = true;
@@ -148,16 +176,18 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public async Task SaveSingleCutoutAsync((CutoutFileItem Item, Window Window) args)
+    public async Task SaveSingleCutoutAsync(CutoutFileItem item)
     {
-        if (args.Item.CutoutPngBytes is null) return;
+        ArgumentNullException.ThrowIfNull(item);
 
-        var savePath = await ExportService.PickSaveFileAsync(args.Window, args.Item.FileName, ".png", "PNG Image");
+        if (Host is null || item.CutoutPngBytes is null) return;
+
+        var savePath = await ExportService.PickSaveFileAsync(Host, item.FileName, ".png", "PNG Image");
         if (string.IsNullOrEmpty(savePath)) return;
 
         try
         {
-            await ExportService.SaveBytesToFileAsync(args.Item.CutoutPngBytes, savePath, _cts.Token);
+            await ExportService.SaveBytesToFileAsync(item.CutoutPngBytes, savePath, _cts.Token);
         }
         catch (Exception exception)
         {
@@ -203,6 +233,7 @@ public partial class CutoutViewModel : ObservableObject, IDisposable
     {
         var item = new CutoutFileItem
         {
+            Owner = this,
             FileName = $"photo_{Files.Count + 1}.png",
             Bytes = png.Length,
             Status = ItemProcessingStatus.Analyzing,

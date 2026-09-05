@@ -9,3 +9,7 @@ output/
 *.err
 Matt_*.m4a
 sample.png
+
+# Fetched by ./SCRIPTS/download-models.ps1, not committed. The csproj includes it only
+# Condition="Exists(...)", and every consumer degrades when it is missing.
+src/PoChopAudio.WinUI/Content/Models/*.onnx

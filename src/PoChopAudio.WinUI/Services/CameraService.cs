@@ -30,7 +30,26 @@ public sealed class CameraService : IDisposable
     /// </summary>
     public event Action<SoftwareBitmap>? FrameArrived;
 
+    /// <summary>
+    /// Brings the preview up. Serialized against <see cref="StopAsync"/>: the two used to run
+    /// unsynchronized over the same <c>_capture</c> and <c>_reader</c> fields, and navigating away
+    /// from the page and back fast enough to overlap them left one disposing what the other was
+    /// still building. The result was an RO_E_CLOSED stowed exception that killed the process.
+    /// </summary>
     public async Task<bool> StartAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            return await StartCoreAsync();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<bool> StartCoreAsync()
     {
         if (IsRunning) return true;
 
@@ -73,8 +92,9 @@ public sealed class CameraService : IDisposable
         catch
         {
             // No camera, no permission, or the device is already held exclusively. The caller
-            // reports it; everything else on the page keeps working.
-            await StopAsync();
+            // reports it; everything else on the page keeps working. StopCoreAsync, not StopAsync:
+            // this already holds the gate.
+            await StopCoreAsync();
             return false;
         }
     }
@@ -111,9 +131,10 @@ public sealed class CameraService : IDisposable
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (_latest is null) return null;
+            var latest = _latest;
+            if (latest is null) return null;
 
-            using var source = SoftwareBitmap.Copy(_latest);
+            using var source = SoftwareBitmap.Copy(latest);
             using var stream = new InMemoryRandomAccessStream();
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
 
@@ -140,26 +161,60 @@ public sealed class CameraService : IDisposable
 
     public async Task StopAsync()
     {
+        await _gate.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            await StopCoreAsync();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task StopCoreAsync()
+    {
         IsRunning = false;
 
-        if (_reader is not null)
+        // Detach the fields before touching them. OnFrameArrived runs on the camera thread and
+        // reads nothing here, but CapturePngAsync and a re-entrant start both do: taking the
+        // objects private first means neither can ever see a half-disposed reader.
+        var reader = _reader;
+        var capture = _capture;
+        _reader = null;
+        _capture = null;
+
+        if (reader is not null)
         {
-            _reader.FrameArrived -= OnFrameArrived;
+            reader.FrameArrived -= OnFrameArrived;
             try
             {
-                await _reader.StopAsync();
+                await reader.StopAsync();
             }
             catch
             {
                 // Already stopped or the device vanished; nothing left to do.
             }
 
-            _reader.Dispose();
-            _reader = null;
+            try
+            {
+                reader.Dispose();
+            }
+            catch
+            {
+                // The reader can already be closed underneath us; disposing twice is not fatal
+                // but it does throw, and this runs on the UI thread where that ends the process.
+            }
         }
 
-        _capture?.Dispose();
-        _capture = null;
+        try
+        {
+            capture?.Dispose();
+        }
+        catch
+        {
+            // Same again: MediaCapture throws rather than no-oping on a second dispose.
+        }
 
         Interlocked.Exchange(ref _latest, null)?.Dispose();
     }
@@ -167,6 +222,5 @@ public sealed class CameraService : IDisposable
     public void Dispose()
     {
         _ = StopAsync();
-        _gate.Dispose();
     }
 }

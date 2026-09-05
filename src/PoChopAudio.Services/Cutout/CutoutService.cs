@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Services.Cutout;
 
@@ -9,10 +8,10 @@ public sealed record CutoutPhoto(byte[] Png, int Width, int Height, CutoutEngine
 /// <summary>
 /// Turns a photo into a cutout in one call.
 ///
-/// This used to be four: upload, analyze, fetch image, delete — with a job store holding decoded
-/// pixels in between. That shape existed because HTTP is stateless and the browser needed a handle
-/// to refer back to. In-process there is nothing to refer back to: the caller already holds the
-/// bytes, so the job store, its 2 h expiry and its temp directory were pure ceremony.
+/// This used to be four calls: upload, analyze, fetch image, delete — with a job store holding
+/// decoded pixels in between. That shape existed because HTTP is stateless and the browser needed
+/// a handle to refer back to. In-process there is nothing to refer back to: the caller already
+/// holds the bytes, so the job store, its 2 h expiry and its temp directory were pure ceremony.
 /// </summary>
 /// <param name="faceLocator">
 /// Optional platform face detection. When the host registers one, a measured chin replaces
@@ -23,13 +22,6 @@ public sealed class CutoutService(
     EnginePicker picker, ILoggerFactory loggerFactory, IFaceLocator? faceLocator = null)
 {
     private readonly ILogger _logger = CutoutLog.CreateLogger(loggerFactory);
-
-    public CutoutCapabilities GetCapabilities() => new(
-        SupportedExtensions: ImageDecoder.SupportedExtensions,
-        AvailableEngines: picker.AvailableEngines,
-        MaxBatchFiles: CutoutLimits.MaxBatchFiles,
-        MaxUploadMb: (int)(CutoutLimits.MaxUploadBytes / (1024 * 1024)),
-        MaxDimension: CutoutLimits.MaxDimension);
 
     /// <summary>True when some engine is available. False means the model is missing.</summary>
     public bool IsAvailable => picker.AvailableEngines.Count > 0;
@@ -65,17 +57,21 @@ public sealed class CutoutService(
         }
 
         var opts = options ?? new CutoutOptions();
-        var engine = picker.Resolve(opts.Engine);
 
+        // Validation comes before the engine lookup. A knob out of range is wrong about the
+        // request, not about the host, so gating it behind an optional capability meant a machine
+        // with no model answered every bad value with "u2netp.onnx is missing" — hiding the field
+        // that was actually at fault, and only on the machines least able to work it out.
+        if (Validate(opts) is { Count: > 0 } errors)
+        {
+            return Outcome<CutoutPhoto>.Invalid(errors);
+        }
+
+        var engine = picker.Resolve(opts.Engine);
         if (engine is null)
         {
             return Outcome<CutoutPhoto>.EngineUnavailable(
                 "Background removal is unavailable because u2netp.onnx is missing. Run SCRIPTS/download-models.ps1.");
-        }
-
-        if (Validate(opts) is { Count: > 0 } errors)
-        {
-            return Outcome<CutoutPhoto>.Invalid(errors);
         }
 
         try

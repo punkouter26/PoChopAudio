@@ -13,7 +13,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PoChopAudio.Services\PoChopAudio.Services.csproj" />
-    <ProjectReference Include="..\..\src\PoChopAudio.Shared\PoChopAudio.Shared.csproj" />
   </ItemGroup>
 
 

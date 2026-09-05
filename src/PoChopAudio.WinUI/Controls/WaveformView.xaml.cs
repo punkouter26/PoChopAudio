@@ -12,7 +12,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using PoChopAudio.Services.Dsp;
-using PoChopAudio.Shared;
+using PoChopAudio.Services.Chop;
 using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Models;
 using Windows.Foundation;
@@ -45,6 +45,7 @@ public sealed partial class WaveformView : UserControl
     private static readonly Color SegmentOddEdge = Color.FromArgb(190, 16, 185, 129);
 
     private ChopFileItem? _item;
+    private CanvasControl? _surface;
     private CanvasTextFormat? _badgeFormat;
     private SpriteVisual? _playhead;
     private bool _isScrubbing;
@@ -78,7 +79,12 @@ public sealed partial class WaveformView : UserControl
         set => SetValue(ItemProperty, value);
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e) => EnsurePlayhead();
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        EnsureSurface();
+        EnsurePlayhead();
+        Redraw();
+    }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
@@ -87,9 +93,48 @@ public sealed partial class WaveformView : UserControl
             _item.PropertyChanged -= OnItemPropertyChanged;
         }
 
-        // Win2D holds a device and a swap chain per control; without this they are released only
-        // when the finalizer eventually runs, and a scrolling batch creates and drops these often.
-        Surface.RemoveFromVisualTree();
+        ReleaseSurface();
+    }
+
+    /// <summary>
+    /// Creates the drawing surface if this control does not currently have one.
+    /// <para>
+    /// Called from <c>Loaded</c> rather than the constructor because the card lists virtualize: an
+    /// element scrolled out of view is unloaded, has its surface released, and is later reloaded
+    /// against a different item. A <see cref="CanvasControl"/> cannot be revived after
+    /// <c>RemoveFromVisualTree</c>, so re-entering the tree means building a new one.
+    /// </para>
+    /// </summary>
+    private void EnsureSurface()
+    {
+        if (_surface is not null)
+        {
+            return;
+        }
+
+        _surface = new CanvasControl { ClearColor = Colors.Transparent };
+        _surface.Draw += OnDraw;
+        _surface.CreateResources += OnCreateResources;
+
+        // Index 0: everything else in the grid - playhead host, time markers, hover tip, busy
+        // badge - is an overlay and has to stay above the drawing.
+        RootGrid.Children.Insert(0, _surface);
+    }
+
+    private void ReleaseSurface()
+    {
+        if (_surface is null)
+        {
+            return;
+        }
+
+        _surface.Draw -= OnDraw;
+        _surface.CreateResources -= OnCreateResources;
+
+        // Win2D holds a device per control; without this they are released only when the finalizer
+        // eventually runs, and a scrolling batch creates and drops these often.
+        _surface.RemoveFromVisualTree();
+        _surface = null;
     }
 
     private void OnCreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
@@ -151,7 +196,7 @@ public sealed partial class WaveformView : UserControl
     /// <summary>Marks the surface dirty and refreshes everything that is not drawn by Win2D.</summary>
     private void Redraw()
     {
-        Surface.Invalidate();
+        _surface?.Invalidate();
 
         if (_item is null)
         {
@@ -337,6 +382,13 @@ public sealed partial class WaveformView : UserControl
         var slide = compositor.CreateVector3KeyFrameAnimation();
         slide.InsertExpressionKeyFrame(1f, "this.FinalValue");
         slide.Duration = TimeSpan.FromMilliseconds(90);
+
+        // Target is not optional. Registering an implicit animation under a property key does not
+        // tell the animation what to animate; without this the first write to Offset below threw
+        // "The triggered animation must have a target specified" out of a pointer event, which
+        // ended the process. Since UpdatePlayhead only assigns Offset while a take is playing or
+        // being scrubbed, that meant clicking a waveform - or playing any clip - killed the app.
+        slide.Target = nameof(Visual.Offset);
 
         var implicits = compositor.CreateImplicitAnimationCollection();
         implicits[nameof(Visual.Offset)] = slide;

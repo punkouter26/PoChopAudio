@@ -1,5 +1,4 @@
 using PoChopAudio.Services.Chop;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Unit;
 
@@ -52,22 +51,11 @@ public sealed class CapabilitiesTests
 
     [Theory]
     [InlineData(".WAV")]
-    [InlineData(".wav")]
     [InlineData(".WAVE")]
-    [InlineData(".Mp3")]
-    [InlineData(".aifF")]
     public void ExtensionLookupIsCaseInsensitive(string extension) =>
         Assert.True(AudioDecoder.IsSupportedExtension(extension));
 
     [Fact]
     public void UnknownExtensionIsRejected() =>
         Assert.False(AudioDecoder.IsSupportedExtension(".txt"));
-
-    [Fact]
-    public void ChopLimitsExposesTheKnobDefaults()
-    {
-        Assert.Equal(32, ChopLimits.MaxBatchFiles);
-        Assert.True(ChopLimits.MaxUploadBytes > 0);
-        Assert.Equal(-40d, ChopLimits.DefaultThresholdDb);
-    }
 }

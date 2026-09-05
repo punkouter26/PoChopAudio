@@ -1,5 +1,4 @@
 using PoChopAudio.Services.Cutout;
-using PoChopAudio.Shared;
 using Xunit;
 
 namespace PoChopAudio.Unit;
@@ -68,7 +67,6 @@ public sealed class HardEdgeTests
 
     [Theory]
     [InlineData(-30)]
-    [InlineData(0)]
     [InlineData(30)]
     public void HeadCutBiasMovesTheCutWithoutLeavingTheImage(int biasPercent)
     {

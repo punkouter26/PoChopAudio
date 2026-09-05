@@ -1,5 +1,4 @@
 using PoChopAudio.Services.Chop;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Unit;
 

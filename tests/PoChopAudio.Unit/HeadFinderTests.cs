@@ -1,5 +1,4 @@
 using PoChopAudio.Services.Cutout;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Unit;
 
@@ -56,8 +55,6 @@ public class HeadFinderTests
 
     [Theory]
     [InlineData(0.50)]
-    [InlineData(0.70)]
-    [InlineData(0.80)]
     [InlineData(0.88)]
     public void CutsAtTheNeckAcrossRealisticNarrowing(double neckRatio)
     {

@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Services.Cutout;
 

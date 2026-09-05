@@ -17,6 +17,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         WindowHelper.TrySetMicaBackdrop(this);
         WindowHelper.SetWindowSizeToWorkAreaFraction(this, 0.82, 0.88);
+        WindowHelper.SetMinimumSize(this, 480, 560);
 
         // Drawing into the title bar is what lets the Mica backdrop run to the top of the window
         // instead of stopping under a grey system caption.

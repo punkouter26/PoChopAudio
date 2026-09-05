@@ -77,15 +77,4 @@ public sealed class ChopJobStoreTests
 
         Assert.True(ChopJobStore.ScratchBytes() >= before + 4096);
     }
-
-    [Fact]
-    public void ParentRoot_IsSharedByEveryStore()
-    {
-        using var first = new ChopJobStore();
-        using var second = new ChopJobStore();
-
-        Assert.NotEqual(first.Root, second.Root);
-        Assert.Equal(ChopJobStore.ParentRoot, Path.GetDirectoryName(first.Root));
-        Assert.Equal(ChopJobStore.ParentRoot, Path.GetDirectoryName(second.Root));
-    }
 }

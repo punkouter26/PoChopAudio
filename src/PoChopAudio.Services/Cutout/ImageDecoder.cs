@@ -1,4 +1,3 @@
-using PoChopAudio.Shared;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Jpeg;
@@ -18,26 +17,20 @@ public static class ImageDecoder
 {
     private static readonly string[] AdvertisedExtensions = [".jpg", ".jpeg", ".png", ".webp"];
 
+    /// <summary>
+    /// <c>.bmp</c> decodes but is not advertised: nothing produces one worth cutting out, and it
+    /// only ever reaches here when a user types the name. This is the single list every caller
+    /// reads — the picker, the diagnostics page and <see cref="IsSupportedExtension"/> alike, so
+    /// the app cannot tell the user it reads a format the picker will not let them choose.
+    /// </summary>
     private static readonly string[] AcceptedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
 
     /// <summary>File extensions the UI should offer in the file picker.</summary>
     public static IReadOnlyList<string> SupportedExtensions => AdvertisedExtensions;
 
-    /// <summary>True if the API can read this extension at all.</summary>
+    /// <summary>True if this build can read the extension at all, advertised or not.</summary>
     public static bool IsSupportedExtension(string extension) =>
         AcceptedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>Sniffs the actual binary magic. The Pixel Motion Photo MP.jpg is a JPEG with a trailing MP4.</summary>
-    public static bool IsAcceptedContentType(string contentType)
-    {
-        if (string.IsNullOrWhiteSpace(contentType))
-        {
-            return false;
-        }
-
-        var bare = contentType.Split(';', 2)[0].Trim().ToLowerInvariant();
-        return bare is "image/jpeg" or "image/jpg" or "image/png" or "image/webp";
-    }
 
     /// <summary>Reads, EXIF-rotates, and resizes-guards an image. Returns (rgba, width, height).</summary>
     public static DecodedImage Decode(Stream input, string fileName)

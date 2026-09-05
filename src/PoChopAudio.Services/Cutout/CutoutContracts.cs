@@ -1,31 +1,9 @@
-using System.Diagnostics.CodeAnalysis;
-
-namespace PoChopAudio.Shared;
-
-/// <summary>Identifies one uploaded image and its current cutout state.</summary>
-public readonly record struct CutoutJobId(Guid Value)
-{
-    public static CutoutJobId New() => new(Guid.NewGuid());
-
-    public static bool TryParse([NotNullWhen(true)] string? text, out CutoutJobId id)
-    {
-        if (Guid.TryParse(text, out var guid) && guid != Guid.Empty)
-        {
-            id = new CutoutJobId(guid);
-            return true;
-        }
-
-        id = default;
-        return false;
-    }
-
-    public override string ToString() => Value.ToString("N");
-}
+namespace PoChopAudio.Services.Cutout;
 
 /// <summary>Knobs the user can turn when the automatic cutout needs a tweak. All optional.</summary>
 public sealed record CutoutOptions
 {
-    /// <summary>Engine to run. Null asks the API to pick its default.</summary>
+    /// <summary>Engine to run. Null asks the service to pick its default.</summary>
     public CutoutEngine? Engine { get; init; }
 
     /// <summary>Keep pixels above this alpha value (0-255). Lower = more of the image kept.</summary>
@@ -65,42 +43,4 @@ public sealed record CutoutOptions
     /// person. Turn off to keep everything the background removal left behind.
     /// </summary>
     public bool HeadOnly { get; init; } = true;
-}
-
-/// <summary>Result of decoding an image upload: enough to draw a preview and decide settings.</summary>
-public sealed record CutoutUploadResult(
-    string JobId,
-    string FileName,
-    int Width,
-    int Height,
-    long Bytes,
-    string ContentType);
-
-/// <summary>Result of running one remover. The PNG bytes are returned via a separate download endpoint.</summary>
-public sealed record CutoutResult(
-    string JobId,
-    CutoutEngine Engine,
-    int Width,
-    int Height,
-    long Bytes,
-    string? Warning,
-    int TrimmedWidth,
-    int TrimmedHeight,
-    int TrimOffsetX,
-    int TrimOffsetY);
-
-/// <summary>Tells the UI which engines, extensions, and limits the running API can actually serve.</summary>
-public sealed record CutoutCapabilities(
-    IReadOnlyList<string> SupportedExtensions,
-    IReadOnlyList<CutoutEngine> AvailableEngines,
-    int MaxBatchFiles,
-    int MaxUploadMb,
-    int MaxDimension)
-{
-    public static CutoutCapabilities Default { get; } = new(
-        SupportedExtensions: [".jpg", ".jpeg", ".png", ".webp"],
-        AvailableEngines: [CutoutEngine.OnnxU2Net],
-        MaxBatchFiles: CutoutLimits.MaxBatchFiles,
-        MaxUploadMb: (int)(CutoutLimits.MaxUploadBytes / (1024 * 1024)),
-        MaxDimension: CutoutLimits.MaxDimension);
 }

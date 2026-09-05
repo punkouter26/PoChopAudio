@@ -5,7 +5,6 @@ using Microsoft.UI.Xaml;
 using PoChopAudio.Services.Chop;
 using PoChopAudio.Services.Dsp;
 using PoChopAudio.Services.Cutout;
-using PoChopAudio.Shared;
 using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Services;
 using Windows.ApplicationModel.DataTransfer;
@@ -65,6 +64,12 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     public ObservableCollection<DiagnosticSection> Diagnostics { get; } = [];
+
+    /// <summary>
+    /// The window the folder picker hangs off. Set by the page once it is loaded, because
+    /// <c>App.MainWindow</c> does not exist yet while the page is being constructed.
+    /// </summary>
+    public Window? Host { get; set; }
 
     /// <summary>System, Light, Dark — in the order the radio buttons appear.</summary>
     [ObservableProperty]
@@ -148,6 +153,7 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>Rebuilds the capability report. Cheap enough to run on every page visit.</summary>
+    [RelayCommand]
     public async Task RefreshAsync()
     {
         var sections = await DiagnosticsReport.BuildAsync(
@@ -163,9 +169,11 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public async Task PickDefaultSaveFolderAsync(Window window)
+    public async Task PickDefaultSaveFolderAsync()
     {
-        var folder = await ExportService.PickFolderAsync(window);
+        if (Host is null) return;
+
+        var folder = await ExportService.PickFolderAsync(Host);
         if (!string.IsNullOrEmpty(folder))
         {
             DefaultSaveFolder = folder;

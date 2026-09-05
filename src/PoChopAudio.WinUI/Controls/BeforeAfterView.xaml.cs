@@ -2,6 +2,7 @@ using System.Numerics;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Effects;
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -33,6 +34,7 @@ public sealed partial class BeforeAfterView : UserControl
     private static readonly Color EdgeGlowColor = Color.FromArgb(255, 250, 204, 21);
 
     private CutoutFileItem? _item;
+    private CanvasControl? _surface;
     private CanvasBitmap? _original;
     private CanvasBitmap? _cutout;
 
@@ -48,6 +50,7 @@ public sealed partial class BeforeAfterView : UserControl
         RootContainer.PointerMoved += OnPointerMoved;
         RootContainer.PointerReleased += OnPointerReleased;
 
+        Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
 
@@ -61,6 +64,12 @@ public sealed partial class BeforeAfterView : UserControl
         set => SetValue(ItemProperty, value);
     }
 
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        EnsureSurface();
+        _ = ReloadBitmapsAsync();
+    }
+
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         if (_item is not null)
@@ -69,7 +78,42 @@ public sealed partial class BeforeAfterView : UserControl
         }
 
         DisposeBitmaps();
-        Surface.RemoveFromVisualTree();
+        ReleaseSurface();
+    }
+
+    /// <summary>
+    /// Creates the drawing surface if this control does not currently have one.
+    /// <para>
+    /// Called from <c>Loaded</c> rather than the constructor because the results list virtualizes:
+    /// a card scrolled out of view is unloaded, has its surface released, and is later reloaded
+    /// against a different photo. A <see cref="CanvasControl"/> cannot be revived after
+    /// <c>RemoveFromVisualTree</c>, so re-entering the tree means building a new one.
+    /// </para>
+    /// </summary>
+    private void EnsureSurface()
+    {
+        if (_surface is not null)
+        {
+            return;
+        }
+
+        _surface = new CanvasControl { ClearColor = Colors.Transparent };
+        _surface.Draw += OnDraw;
+
+        // Index 0: the labels and the toggle row are overlays and have to stay above the drawing.
+        RootContainer.Children.Insert(0, _surface);
+    }
+
+    private void ReleaseSurface()
+    {
+        if (_surface is null)
+        {
+            return;
+        }
+
+        _surface.Draw -= OnDraw;
+        _surface.RemoveFromVisualTree();
+        _surface = null;
     }
 
     private void OnItemChanged(CutoutFileItem? newItem)
@@ -97,7 +141,7 @@ public sealed partial class BeforeAfterView : UserControl
         }
     }
 
-    private void OnRedrawRequested(object sender, RoutedEventArgs e) => Surface.Invalidate();
+    private void OnRedrawRequested(object sender, RoutedEventArgs e) => _surface?.Invalidate();
 
     /// <summary>
     /// Decodes both PNGs into Win2D bitmaps. Works from the byte arrays the item already holds
@@ -110,7 +154,7 @@ public sealed partial class BeforeAfterView : UserControl
 
         if (_item is null)
         {
-            Surface.Invalidate();
+            _surface?.Invalidate();
             return;
         }
 
@@ -135,7 +179,7 @@ public sealed partial class BeforeAfterView : UserControl
             DisposeBitmaps();
         }
 
-        Surface.Invalidate();
+        _surface?.Invalidate();
     }
 
     private static async Task<CanvasBitmap> LoadAsync(CanvasDevice device, byte[] png)
@@ -308,7 +352,7 @@ public sealed partial class BeforeAfterView : UserControl
     {
         var x = e.GetCurrentPoint(RootContainer).Position.X;
         _split = (float)Math.Clamp(x / Math.Max(1.0, RootContainer.ActualWidth), 0.0, 1.0);
-        Surface.Invalidate();
+        _surface?.Invalidate();
     }
 
     private void DisposeBitmaps()

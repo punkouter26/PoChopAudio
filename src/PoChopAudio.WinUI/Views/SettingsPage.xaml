@@ -4,37 +4,22 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:common="using:PoChopAudio.WinUI.Common"
     xmlns:services="using:PoChopAudio.WinUI.Services"
-    xmlns:shapes="using:Microsoft.UI.Xaml.Shapes">
+    xmlns:shapes="using:Microsoft.UI.Xaml.Shapes"
+    NavigationCacheMode="Required">
 
     <Page.Resources>
-        <common:BoolToVisibilityConverter x:Key="BoolToVis" />
-        <common:BoolToVisibilityConverter x:Key="InvertedBoolToVis" Invert="True" />
-        <common:InvertedBoolConverter x:Key="InvertBool" />
-        <common:NullToVisibilityConverter x:Key="NullToVis" />
+        <!--
+            The shared converters and the card, heading, hint and path styles are in App.xaml. Only
+            this converter stays local, because this is the one page that uses it.
+        -->
         <common:DiagnosticStateToBrushConverter x:Key="StateToBrush" />
-
-        <!-- One card shape for every row on the page, so nothing is styled inline twice. -->
-        <Style x:Key="SettingsCard" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="20,16" />
-        </Style>
-
-        <Style x:Key="SectionHeading" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
-            <Setter Property="Margin" Value="2,8,0,0" />
-        </Style>
-
-        <Style x:Key="PathText" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Segoe UI" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="IsTextSelectionEnabled" Value="True" />
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-        </Style>
     </Page.Resources>
 
+    <!--
+        Cards here are the same glass as Chop and Cutout, not the opaque CardBackground they used to
+        be. The backdrop now runs behind every page from MainWindow, and an opaque card over a
+        gradient reads as a hole punched in the page - the reasoning App.xaml records for the brush.
+    -->
     <ScrollViewer Padding="24,16,24,32"
                   HorizontalScrollMode="Disabled"
                   HorizontalScrollBarVisibility="Disabled">
@@ -43,8 +28,7 @@
             <StackPanel Spacing="2">
                 <TextBlock Text="Settings" Style="{ThemeResource TitleTextBlockStyle}" />
                 <TextBlock Text="How the app looks, where it saves, and what this machine can do."
-                           TextWrapping="Wrap"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                           Style="{StaticResource HintText}" />
             </StackPanel>
 
             <!-- Status line. Assertive so a screen reader announces the result of a button press. -->
@@ -57,11 +41,11 @@
             <!-- ── Appearance ───────────────────────────────────────────────── -->
             <TextBlock Text="Appearance" Style="{StaticResource SectionHeading}" />
 
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Style="{StaticResource GlassCard}">
                 <StackPanel Spacing="10">
-                    <TextBlock Text="Theme" FontWeight="SemiBold" />
+                    <TextBlock Text="Theme" Style="{ThemeResource BodyStrongTextBlockStyle}" />
                     <TextBlock Text="Applies straight away and is remembered next time."
-                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                               Style="{StaticResource HintText}" />
                     <RadioButtons SelectedIndex="{x:Bind ViewModel.ThemeIndex, Mode=TwoWay}"
                                   MaxColumns="3"
                                   AutomationProperties.Name="Application theme">
@@ -75,7 +59,7 @@
             <!-- ── Saving ───────────────────────────────────────────────────── -->
             <TextBlock Text="Saving" Style="{StaticResource SectionHeading}" />
 
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Style="{StaticResource GlassCard}">
                 <StackPanel Spacing="12">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
@@ -84,18 +68,17 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Default folder" FontWeight="SemiBold" />
+                            <TextBlock Text="Default folder" Style="{ThemeResource BodyStrongTextBlockStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.DefaultSaveFolder, Mode=OneWay}"
                                        Style="{StaticResource PathText}"
                                        Visibility="{x:Bind ViewModel.HasDefaultSaveFolder, Mode=OneWay, Converter={StaticResource BoolToVis}}" />
                             <TextBlock Text="Not set — the app asks every time."
-                                       FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Style="{StaticResource HintText}"
                                        Visibility="{x:Bind ViewModel.HasDefaultSaveFolder, Mode=OneWay, Converter={StaticResource InvertedBoolToVis}}" />
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <Button Content="Choose…" Click="OnPickDefaultFolderClicked"
+                            <Button Content="Choose…" Command="{x:Bind ViewModel.PickDefaultSaveFolderCommand}"
                                     AutomationProperties.Name="Choose the default save folder" />
                             <Button Content="Clear"
                                     Command="{x:Bind ViewModel.ClearDefaultSaveFolderCommand}"
@@ -112,15 +95,14 @@
                                   AutomationProperties.Name="Skip the folder picker when saving a batch" />
 
                     <TextBlock Text="Only affects &quot;Save all&quot; on the Chop and Cutout pages. Saving a single clip or photo always asks, so a one-off never lands somewhere unexpected."
-                               FontSize="12" TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                               Style="{StaticResource HintText}" />
                 </StackPanel>
             </Border>
 
             <!-- ── Sound and motion ─────────────────────────────────────────── -->
             <TextBlock Text="Sound and motion" Style="{StaticResource SectionHeading}" />
 
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Style="{StaticResource GlassCard}">
                 <StackPanel Spacing="12">
                     <ToggleSwitch IsOn="{x:Bind ViewModel.CueSoundsEnabled, Mode=TwoWay}"
                                   OnContent="Cue sounds on"
@@ -128,19 +110,18 @@
                                   MinWidth="0"
                                   AutomationProperties.Name="Play synthesised count-in and completion sounds" />
 
-                    <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    <TextBlock Style="{StaticResource HintText}"
                                Text="An audible count-in before recording, a chime when a batch finishes, and a quiet blip either side of a clip you audition. All generated on the fly — no sound files are shipped. Nothing ever sounds while the microphone is open, so a cue cannot end up inside a take." />
 
                     <MenuFlyoutSeparator />
 
                     <StackPanel Spacing="2">
-                        <TextBlock Text="Motion" FontWeight="SemiBold" />
+                        <TextBlock Text="Motion" Style="{ThemeResource BodyStrongTextBlockStyle}" />
                         <TextBlock Text="{x:Bind ViewModel.MotionStatusText}"
-                                   TextWrapping="Wrap" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                   Style="{StaticResource HintText}" />
                         <TextBlock Text="This follows the Windows &quot;Show animations&quot; setting rather than adding one of its own."
-                                   TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0"
+                                   Style="{StaticResource HintText}"
+                                   Margin="0,4,0,0"
                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                     </StackPanel>
                 </StackPanel>
@@ -149,7 +130,7 @@
             <!-- ── Storage ──────────────────────────────────────────────────── -->
             <TextBlock Text="Storage" Style="{StaticResource SectionHeading}" />
 
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Style="{StaticResource GlassCard}">
                 <StackPanel Spacing="12">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
@@ -159,14 +140,14 @@
 
                         <StackPanel Grid.Column="0" Spacing="2">
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock Text="Working files" FontWeight="SemiBold" />
+                                <TextBlock Text="Working files" Style="{ThemeResource BodyStrongTextBlockStyle}" />
                                 <TextBlock Text="{x:Bind ViewModel.ScratchSizeText, Mode=OneWay}"
+                                           VerticalAlignment="Center"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </StackPanel>
                             <TextBlock Text="{x:Bind ViewModel.ScratchFolder}" Style="{StaticResource PathText}" />
                             <TextBlock Text="Decoded audio lives here while the app is open and is deleted on exit. Cleaning up removes only what earlier runs left behind — nothing on screen right now is touched."
-                                       FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                       Style="{StaticResource HintText}" Margin="0,4,0,0" />
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
@@ -189,7 +170,7 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Log file" FontWeight="SemiBold" />
+                            <TextBlock Text="Log file" Style="{ThemeResource BodyStrongTextBlockStyle}" />
                             <TextBlock Text="{x:Bind ViewModel.LogDirectory}" Style="{StaticResource PathText}" />
                         </StackPanel>
 
@@ -202,10 +183,16 @@
             </Border>
 
             <!-- ── Diagnostics ──────────────────────────────────────────────── -->
-            <Grid Margin="2,8,0,0">
-                <TextBlock Text="What this machine can do" Style="{ThemeResource BodyStrongTextBlockStyle}"
-                           VerticalAlignment="Center" />
-                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <!-- Two real columns. As one cell the heading sat under the two buttons. -->
+            <Grid Margin="2,8,0,0" ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="What this machine can do"
+                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                           VerticalAlignment="Center" TextWrapping="Wrap" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Button Command="{x:Bind ViewModel.CopyDiagnosticsCommand}"
                             AutomationProperties.Name="Copy diagnostics to the clipboard"
                             ToolTipService.ToolTip="Copy every line below as text, ready to paste into a bug report">
@@ -214,7 +201,7 @@
                             <TextBlock Text="Copy" />
                         </StackPanel>
                     </Button>
-                    <Button Click="OnRefreshDiagnosticsClicked"
+                    <Button Command="{x:Bind ViewModel.RefreshCommand}"
                             AutomationProperties.Name="Re-check what this machine can do">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE72C;" FontSize="14" />
@@ -224,21 +211,30 @@
                 </StackPanel>
             </Grid>
 
-            <ItemsControl ItemsSource="{x:Bind ViewModel.Diagnostics}">
-                <ItemsControl.ItemTemplate>
+            <ItemsRepeater ItemsSource="{x:Bind ViewModel.Diagnostics}">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="10" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="services:DiagnosticSection">
-                        <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10"
+                        <Border Style="{StaticResource GlassCard}"
                                 AutomationProperties.Name="{x:Bind Title}">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind Title}" Style="{ThemeResource BodyStrongTextBlockStyle}" />
 
                                 <ItemsControl ItemsSource="{x:Bind Items}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="services:DiagnosticItem">
+                                            <!--
+                                                The label column was a fixed 170px, which truncated
+                                                the longer capability names outright. Auto sizes to
+                                                the widest label instead, and the value column takes
+                                                what is left.
+                                            -->
                                             <Grid ColumnSpacing="10" Margin="0,3">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="170" />
+                                                    <ColumnDefinition Width="Auto" MaxWidth="220" />
                                                     <ColumnDefinition Width="*" />
                                                 </Grid.ColumnDefinitions>
 
@@ -247,11 +243,13 @@
                                                          Fill="{x:Bind State, Converter={StaticResource StateToBrush}}" />
 
                                                 <TextBlock Grid.Column="1" Text="{x:Bind Label}"
-                                                           FontSize="12" TextWrapping="Wrap"
+                                                           Style="{ThemeResource CaptionTextBlockStyle}"
+                                                           TextWrapping="Wrap"
                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
                                                 <TextBlock Grid.Column="2" Text="{x:Bind Value}"
-                                                           FontSize="12" TextWrapping="Wrap"
+                                                           Style="{ThemeResource CaptionTextBlockStyle}"
+                                                           TextWrapping="Wrap"
                                                            IsTextSelectionEnabled="True" />
                                             </Grid>
                                         </DataTemplate>
@@ -260,17 +258,16 @@
                             </StackPanel>
                         </Border>
                     </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
 
             <!-- ── About ────────────────────────────────────────────────────── -->
             <TextBlock Text="About" Style="{StaticResource SectionHeading}" />
 
-            <Border Style="{StaticResource SettingsCard}">
+            <Border Style="{StaticResource GlassCard}">
                 <StackPanel Spacing="10">
-                    <TextBlock Text="PoChopAudio" FontWeight="SemiBold" FontSize="15" />
-                    <TextBlock TextWrapping="Wrap" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    <TextBlock Text="PoChopAudio" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <TextBlock Style="{StaticResource HintText}"
                                Text="Splits recordings into one clip per take, and takes head shots and strips their backgrounds. Everything runs on this machine: there is no server, no account, and nothing is uploaded." />
 
                     <Grid ColumnSpacing="12">
@@ -280,7 +277,8 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Settings file" FontWeight="SemiBold" FontSize="12" />
+                            <TextBlock Text="Settings file" Style="{ThemeResource CaptionTextBlockStyle}"
+                                       FontWeight="SemiBold" />
                             <TextBlock Text="{x:Bind ViewModel.SettingsFilePath}" Style="{StaticResource PathText}" />
                         </StackPanel>
 

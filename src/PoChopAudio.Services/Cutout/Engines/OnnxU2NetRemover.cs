@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
-using PoChopAudio.Shared;
+using PoChopAudio.Services.Cutout;
 
 namespace PoChopAudio.Services.Cutout.Engines;
 

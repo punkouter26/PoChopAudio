@@ -1,6 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/PoChopAudio.Shared/PoChopAudio.Shared.csproj" />
     <Project Path="src/PoChopAudio.Services/PoChopAudio.Services.csproj" />
     <Project Path="src/PoChopAudio.WinUI/PoChopAudio.WinUI.csproj" />
   </Folder>

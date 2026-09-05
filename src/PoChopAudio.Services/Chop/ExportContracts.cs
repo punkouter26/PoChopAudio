@@ -1,4 +1,4 @@
-namespace PoChopAudio.Shared;
+namespace PoChopAudio.Services.Chop;
 
 /// <summary>How a clip's level is measured before the export gain is applied.</summary>
 public enum NormalizeMode
@@ -16,7 +16,7 @@ public enum NormalizeMode
     Lufs,
 }
 
-/// <summary>Bounds both ends of the wire enforce for the export knobs.</summary>
+/// <summary>Bounds the export knobs are held to, wherever they are set.</summary>
 public static class ExportLimits
 {
     /// <summary>Quietest level worth normalizing. Below this a clip is treated as silence and left alone.</summary>

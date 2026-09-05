@@ -1,5 +1,3 @@
-using PoChopAudio.Shared;
-
 namespace PoChopAudio.Services.Chop;
 
 /// <summary>What a measuring pass found, and what the writing pass should therefore do.</summary>

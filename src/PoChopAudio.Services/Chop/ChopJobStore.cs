@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Services.Chop;
 
@@ -27,11 +26,17 @@ public sealed class ChopJob
 /// <summary>
 /// Keeps decoded uploads on local disk for the length of a working session. Nothing here survives a
 /// restart by design — a job is scratch space between "upload" and "download the clips".
+/// <para>
+/// There is no per-job expiry. A two-hour <c>Lifetime</c> and a <c>RemoveExpired</c> sweep used to
+/// live here, inherited from when the caller was a server holding jobs for clients it could not
+/// see. Nothing ever called the sweep, so the store advertised a behaviour it did not have — and
+/// the diagnostics page printed the claim to the user. In-process the caller is the window: a job
+/// dies when the user clears it or closes the app, and expiring one still on screen would be a bug
+/// rather than housekeeping.
+/// </para>
 /// </summary>
 public sealed class ChopJobStore : IDisposable
 {
-    public static readonly TimeSpan Lifetime = TimeSpan.FromHours(2);
-
     /// <summary>
     /// Held open with <see cref="FileShare.None"/> for as long as the store lives, so another
     /// instance can tell "in use" from "left behind by a process that died" without guessing from
@@ -227,8 +232,7 @@ public sealed class ChopJobStore : IDisposable
         return job;
     }
 
-    public ChopJob? Find(string? rawJobId) =>
-        JobId.TryParse(rawJobId, out var id) && _jobs.TryGetValue(id, out var job) ? job : null;
+    public ChopJob? Find(JobId id) => _jobs.TryGetValue(id, out var job) ? job : null;
 
     public void Remove(JobId id)
     {
@@ -236,18 +240,6 @@ public sealed class ChopJobStore : IDisposable
         {
             TryDeleteDirectory(job.WorkingDirectory);
         }
-    }
-
-    public int RemoveExpired(DateTimeOffset now)
-    {
-        var removed = 0;
-        foreach (var job in _jobs.Values.Where(j => now - j.CreatedUtc > Lifetime).ToArray())
-        {
-            Remove(job.Id);
-            removed++;
-        }
-
-        return removed;
     }
 
     public void Dispose()

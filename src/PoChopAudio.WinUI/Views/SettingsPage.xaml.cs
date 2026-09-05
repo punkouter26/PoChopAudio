@@ -15,21 +15,12 @@ public sealed partial class SettingsPage : Page
         Loaded += OnLoaded;
     }
 
-    // Rebuilt on every visit rather than cached: a camera can be plugged in, the model downloaded,
-    // or the scratch folder filled up while the app is running, and a stale report is worse than
-    // none — it is the report someone pastes into a bug.
-    private async void OnLoaded(object sender, RoutedEventArgs e)
+    // The report is rebuilt on every visit rather than cached: a camera can be plugged in, the
+    // model downloaded, or the scratch folder filled up while the app is running, and a stale
+    // report is worse than none — it is the report someone pastes into a bug.
+    private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        await ViewModel.RefreshAsync();
-    }
-
-    private async void OnRefreshDiagnosticsClicked(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.RefreshAsync();
-    }
-
-    private async void OnPickDefaultFolderClicked(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.PickDefaultSaveFolderAsync(App.MainWindow);
+        ViewModel.Host = App.MainWindow;
+        ViewModel.RefreshCommand.Execute(null);
     }
 }

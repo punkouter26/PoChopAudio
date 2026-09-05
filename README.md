@@ -103,10 +103,12 @@ A name of `Head` saves `Head_1.png, Head_2.png, …`, either one at a time or as
 
 **Nothing is uploaded.** The camera, the background-removal model and the crop all run inside the
 app; no photograph of your face reaches a network, and none touches the disk unless you save it.
-The ONNX model ships with the app, so this works with no network at all.
+The ONNX model is fetched once by `./SCRIPTS/download-models.ps1` and then lives inside the app,
+so this works with no network at all. Without it the Cutout page says so and stays disabled rather
+than failing at the click.
 
 ## Layout
 
-`src/PoChopAudio.Services` (all the audio and image logic), `src/PoChopAudio.Shared` (contracts),
+`src/PoChopAudio.Services` (all the audio and image logic, and the contracts that go with it),
 `src/PoChopAudio.WinUI` (the app itself), `tests/PoChopAudio.Unit` and
 `tests/PoChopAudio.Integration`. See [AGENT.md](AGENT.md) for how detection works.

@@ -1,5 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using PoChopAudio.Shared;
+using PoChopAudio.Services.Cutout;
 
 namespace PoChopAudio.WinUI.Models;
 

@@ -1,14 +1,31 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PoChopAudio.Services.Dsp;
-using PoChopAudio.Shared;
+using PoChopAudio.Services.Chop;
 
 namespace PoChopAudio.WinUI.Models;
 
 public partial class ChopFileItem : ObservableObject
 {
+    /// <summary>
+    /// The view model this card belongs to, so the buttons inside its DataTemplate can reach the
+    /// commands with a compiled binding.
+    ///
+    /// <para>
+    /// A DataTemplate has its own namescope, so <c>{Binding ElementName=...}</c> inside one cannot
+    /// see the page and resolves to nothing at all — silently, which is how "Split again" once did
+    /// nothing whatsoever with no error to show for it. <c>x:Bind</c> inside the template reaches
+    /// only this object, so the route out has to hang off this object.
+    /// </para>
+    /// </summary>
+    public ViewModels.ChopViewModel? Owner { get; init; }
+
+    /// <summary>
+    /// The service-side handle for this recording. <c>default</c> until the decode succeeds, which
+    /// is what the export and re-split paths check before calling anything.
+    /// </summary>
     [ObservableProperty]
-    private string _jobId = string.Empty;
+    private JobId _jobId;
 
     [ObservableProperty]
     private string _fileName = string.Empty;

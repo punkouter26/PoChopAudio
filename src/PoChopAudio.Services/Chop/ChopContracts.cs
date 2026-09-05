@@ -1,11 +1,9 @@
-using System.Diagnostics.CodeAnalysis;
+namespace PoChopAudio.Services.Chop;
 
-namespace PoChopAudio.Shared;
-
-/// <summary>Bounds both ends of the wire enforce, so the UI never offers what the API will reject.</summary>
+/// <summary>Bounds the UI and the service both hold to, so the picker never offers what upload will reject.</summary>
 public static class ChopLimits
 {
-    /// <summary>Largest single recording the API will decode.</summary>
+    /// <summary>Largest single recording the service will decode.</summary>
     public const long MaxUploadBytes = 250L * 1024 * 1024;
 
     /// <summary>Most recordings one batch may hold.</summary>
@@ -15,29 +13,26 @@ public static class ChopLimits
     public const double DefaultThresholdDb = -40;
 }
 
-/// <summary>Identifies one uploaded-and-decoded source recording.</summary>
+/// <summary>
+/// Identifies one decoded source recording.
+///
+/// <para>
+/// A struct rather than a bare <see cref="Guid"/> so an id cannot be confused with any other
+/// identifier at a call site. There is no <c>TryParse</c>: ids are minted by
+/// <see cref="ChopJobStore.Create"/> and handed straight back to the service, so no id is ever
+/// reconstructed from text. Parsing existed for route parameters, and there are no routes.
+/// </para>
+/// </summary>
 public readonly record struct JobId(Guid Value)
 {
     public static JobId New() => new(Guid.NewGuid());
 
-    public static bool TryParse([NotNullWhen(true)] string? text, out JobId id)
-    {
-        if (Guid.TryParse(text, out var guid) && guid != Guid.Empty)
-        {
-            id = new JobId(guid);
-            return true;
-        }
-
-        id = default;
-        return false;
-    }
-
     public override string ToString() => Value.ToString("N");
 }
 
-/// <summary>Result of decoding an upload: enough to draw the waveform and start tuning.</summary>
+/// <summary>Result of decoding a recording: enough to draw the waveform and start tuning.</summary>
 public sealed record UploadResult(
-    string JobId,
+    JobId JobId,
     string FileName,
     double DurationSeconds,
     int SampleRate,
@@ -82,17 +77,10 @@ public sealed record ChopSegment(
 }
 
 public sealed record AnalysisResult(
-    string JobId,
+    JobId JobId,
     double DurationSeconds,
     double ThresholdDb,
     double NoiseFloorDb,
     double PeakDb,
     IReadOnlyList<ChopSegment> Segments,
     string? Warning);
-
-/// <summary>Tells the UI which file extensions the running API can actually decode.</summary>
-public sealed record ChopCapabilities(
-    IReadOnlyList<string> SupportedExtensions,
-    string Description,
-    int MaxBatchFiles,
-    int MaxUploadMb);

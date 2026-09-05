@@ -14,8 +14,18 @@ param(
 
     # The app is unpackaged and self-contained, so it must be built for a concrete architecture.
     # Defaults to whatever this machine is.
-    [ValidateSet('x64', 'ARM64')]
-    [string]$Platform = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' })
+    #
+    # Read from RuntimeInformation, not $env:PROCESSOR_ARCHITECTURE: that variable reports the
+    # architecture of the *process*, so it reads AMD64 inside an emulated x64 shell on an ARM64
+    # machine and the script would silently build x64 and then look for the exe under bin/ARM64.
+    [ValidateSet('x86', 'x64', 'ARM64')]
+    [string]$Platform = $(
+        switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+            'Arm64' { 'ARM64' }
+            'X86'   { 'x86' }
+            default { 'x64' }
+        }
+    )
 )
 
 $ErrorActionPreference = 'Stop'

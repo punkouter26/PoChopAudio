@@ -7,10 +7,10 @@ Governance lived in `NET_RULES.md`, now deleted (`git show f185bd3:NET_RULES.md`
 this file records what was actually built.
 
 > **PoChopAudio is a WinUI 3 desktop app.** The ASP.NET Minimal API (`PoChopAudio.API`) and the
-> Blazor WASM client (`PoChopAudio.Client`) were deleted: everything now runs in-process on the
-> user's machine and nothing is uploaded. Sections below that describe HTTP endpoints record how
-> the feature *was* reached, not how it is reached today — the logic behind them survived the move
-> into `PoChopAudio.Services` unchanged, which is why they are still worth reading.
+> Blazor WASM client (`PoChopAudio.Client`) were deleted: everything runs in-process on the user's
+> machine and nothing is uploaded. Where an old HTTP route is mentioned it is named as history, to
+> explain a shape the code still has — the DSP behind it moved into `PoChopAudio.Services`
+> unchanged. Nothing below describes a call the app makes today.
 
 ## Shape
 
@@ -29,15 +29,19 @@ src/PoChopAudio.Services/     Host-agnostic engine room. No UI, no hosting frame
   Dsp/CueSynth                Count-in, chimes and a -18 dBFS reference tone, as samples
   Dsp/ParticleField           Fixed-capacity particle simulation, pure and frame-rate independent
   Chop/ClipProcessor          Export maths: gain decision and fade curve, no I/O
-  Chop/ChopJobStore           Temp-dir job scratch space, 2 h TTL, lock-file liveness
+  Chop/ChopJobStore           Temp-dir job scratch space, lock-file liveness (no TTL)
   Cutout/CutoutService        CutOutAsync: decode, mask, clean, head-crop, encode — one call
   Cutout/ImageDecoder         JPEG/PNG/WebP decode, EXIF auto-rotate, MP.jpg trailer strip
   Cutout/EdgeProcessor        Mask threshold, morphology, feather, alpha multiplier
   Cutout/HeadFinder           Crops to the head alone: peak, neck, shoulder flare
   Cutout/Engines/OnnxU2NetRemover  u2netp ONNX model, in-process
   Cutout/CutoutModelOptions   Injected path to u2netp.onnx — why the engine needs no host
-src/PoChopAudio.Shared/       Contracts: JobId, ChopLimits, ChopOptions, ExportOptions, results,
-                              CutoutLimits, CutoutEngine, IBackgroundRemover, CutoutOptions
+  Chop/ChopContracts          JobId, ChopLimits, ChopOptions, ChopSegment, Upload/AnalysisResult
+  Chop/ExportContracts        NormalizeMode, ExportLimits, ExportOptions
+  Cutout/CutoutContracts      CutoutOptions
+  Cutout/CutoutLimits         CutoutLimits, CutoutEngine
+  Cutout/IBackgroundRemover   The one remover interface, so EnginePicker can report it missing
+  Cutout/IFaceLocator         Optional platform face detection; no implementation lives here
 src/PoChopAudio.WinUI/        The app. Unpackaged, self-contained Windows App SDK.
   App.xaml.cs                 DI registration — the same singletons the API used to register
   MainWindow.xaml             NavigationView shell: Chop Audio, Cutout Studio, Settings
@@ -57,22 +61,34 @@ src/PoChopAudio.WinUI/        The app. Unpackaged, self-contained Windows App SD
   Shaders/AuroraShader        HLSL mesh gradient, compiled by ComputeSharp at build time
   Services/AudioCueService    Plays the synthesised cues on their own output device
   Common/Motion               Composition animation helpers; honours reduced-motion
-  Content/Models/u2netp.onnx  Shipped with the app (optional; absent = cutout unavailable)
-tests/PoChopAudio.Unit/       Pure logic: detector, exporters, decoder, edge processor
-tests/PoChopAudio.Integration/  Multi-component behaviour against the real services
+  ViewModels/RecordingViewModel  Capturing one take: name, count-in, input meter, TakeRecorded
+  ViewModels/ChopViewModel    The rest of the Chop page: files, knobs, playback, export
+  Services/WindowsFaceLocator The IFaceLocator implementation — a Windows API, so it lives here
+  Content/Models/u2netp.onnx  Fetched by SCRIPTS/download-models.ps1, not committed
+tests/PoChopAudio.Unit/       Pure logic: detector, exporters, decoder, edge processor (100 tests)
+tests/PoChopAudio.Integration/  Multi-component behaviour against the real services (18 tests)
 ```
+
+There is no `PoChopAudio.Shared`. It existed so an API and a browser client could share a wire
+contract; with one consumer left, a separate project for five files was a layer to step through
+rather than a boundary to enforce, and the contracts moved into the slice that owns them.
 
 ## How a file becomes clips
 
-1. **Upload** — `POST /api/chop/upload`. The file is written to a temp job directory and decoded
+1. **Upload** — `ChopService.UploadAsync`. The file is written to a temp job directory and decoded
    once into `canonical.wav` (32-bit float, source rate and channel count). Nothing is decoded twice.
+   It returns a `JobId`, and every later call takes that struct — not a string, so an id cannot be
+   confused with a filename at a call site.
 2. **Envelope** — the same decode pass builds a 10 ms-per-frame RMS loudness trace plus a 900-point
    peak trace for the waveform view. Both live in memory on the job; the audio lives on disk.
-3. **Detect** — `POST /api/chop/{jobId}/analyze`. See below.
-4. **Export** — `GET /api/chop/{jobId}/clips/{index}` or `clips.zip` slices `canonical.wav` and
-   writes 16-bit PCM WAV.
+3. **Detect** — `ChopService.Analyze`. See below.
+4. **Export** — `ChopService.GetClip` or `GetBatchZip` slices `canonical.wav` and writes 16-bit PCM
+   WAV.
 
-Jobs are scratch space: they live under `%TEMP%/PoChopAudio`, expire after two hours, and the
+Everything after step 1 is synchronous, so the caller chooses the thread. From a view model that
+means `Task.Run`, or the window freezes.
+
+Jobs are scratch space: they live under `%TEMP%/PoChopAudio` for as long as the app is open, and the
 directory is wiped on startup and shutdown.
 
 ## Batches
@@ -81,16 +97,16 @@ A job is still exactly one recording. A batch is nothing more than the set of jo
 currently holding, which is why there is no batch entity, no second lifetime to manage, and no way
 for a batch to outlive the audio it points at.
 
-- **Upload** is sequential, one file at a time. Each file is buffered whole in the browser before it
-  is posted, so uploading several 250 MB files at once would only trade throughput for memory.
+- **Decoding** is sequential, one file at a time. Decoding several 250 MB recordings at once would
+  only trade throughput for memory.
 - **Settings** are shared until a file's own knobs are touched. Touching them sets `UsesOwnSettings`,
   which excludes that file from *Re-split all* — one badly-recorded take never forces the rest to be
   re-tuned, and re-tuning the rest never silently discards the fix.
 - **Failure is per file.** A file that will not decode, or that finds the wrong number of takes, is
   flagged and left in place; the others finish and the flagged file is still exported.
-- **Export** is `GET /api/chop/clips.zip?jobs=…&jobs=…`, capped at `ChopLimits.MaxBatchFiles`. Unknown
-  or expired ids are skipped rather than fatal, so one lapsed job cannot block the download; only an
-  entirely unusable set returns 404.
+- **Export** is `ChopService.GetBatchZip`, capped at `ChopLimits.MaxBatchFiles`. Unknown ids are
+  skipped rather than fatal, so one lapsed job cannot block the save; only an entirely unusable set
+  comes back `NotFound`.
 - **Names** stay flat — `Nick_Happy_1.wav … Nick_Sad_5.wav` — because the source name is already the
   prefix. `ClipExporter.UniqueStems` guarantees the flatness is safe: two uploads called
   `Nick_Happy` become `Nick_Happy` and `Nick_Happy(2)`, compared case-insensitively so a Windows
@@ -123,75 +139,38 @@ batch as an upload and is split by the same detector — there is no recording e
 lifetime, and no separate page, because after the first few milliseconds there is nothing to tell a
 recording apart from an uploaded `.wav`.
 
-**The browser writes the WAV itself.** `MediaRecorder` would be less code, but it emits WebM/Opus on
-Chrome and Firefox and MP4/AAC on Safari, and `AudioDecoder` handles neither off Windows — so the
-obvious implementation produces a feature that works on the author's machine and fails on everyone
-else's. Instead an `AudioWorklet` captures float samples and `recorder.js` writes a canonical 44-byte
-RIFF header around 16-bit PCM. The upload then travels the identical path as a picked file: same
-decode, same detection, same clip naming, no server-side codec that exists for this one feature.
+`AudioRecorderService` captures through NAudio's `WaveInEvent` and writes 16-bit PCM WAV bytes, so
+what comes off the microphone is byte-identical in shape to a picked `.wav`: same decode, same
+detection, same clip naming, no codec that exists for this one feature.
 
-- **Capture is deliberately unprocessed.** `echoCancellation`, `autoGainControl` and
-  `noiseSuppression` are all off. AGC in particular would ride the level between takes and destroy
-  exactly the consistency the detector measures; noise suppression would eat the quiet gaps it
-  splits on.
-- **The worklet batches.** Audio arrives in 128-frame quanta — 375 a second at 48 kHz — so frames
-  are gathered into ~85 ms blocks before crossing to the main thread, and the partial final block is
-  flushed on stop so the tail of a take is not dropped.
-- **Length is capped, not silently truncated.** Uncompressed mono at 48 kHz is 5.76 MB/min, so
-  capture auto-stops just under `ChopLimits.MaxUploadBytes` (~43 min) and says why.
+`RecordingViewModel` owns the whole of it — the pending name, the count-in, the level meter — and
+hands the finished bytes to `ChopViewModel` through a single `TakeRecorded` event. It knows nothing
+about files, jobs or clips, which is the point: it was carved out of a `ChopViewModel` that had
+grown to hold recording, playback, analysis and export at once.
+
+- **Capture is deliberately unprocessed.** No AGC and no noise suppression. AGC in particular would
+  ride the level between takes and destroy exactly the consistency the detector measures; noise
+  suppression would eat the quiet gaps it splits on.
 - **Naming is the whole point.** A recording has no filename to take a stem from, so the panel has a
-  name field: `Nick_Happy` becomes `Nick_Happy_1.wav … Nick_Happy_5.wav` through the existing
-  `ClipExporter.ClipFileName`. The page de-duplicates against the batch up front rather than leaving
-  `UniqueStems` to resolve it silently at download time.
-
-`getUserMedia` needs a secure context. `localhost` qualifies, so development is unaffected, but
-serving this over plain HTTP disables recording — `AudioRecorder.IsSupportedAsync` detects that and
-the panel explains it instead of failing at the click.
-
-The header is where the browser and NAudio have to agree, and a wrong field surfaces as an opaque
-422 rather than anything diagnosable. `SCRIPTS/verify-recorder-wav.js` loads the real `recorder.js`
-in a node stub and asserts every field; it needs no browser and no microphone.
+  name field, and Record stays disabled until it is filled in — `CanStartRecording`. `Nick_Happy`
+  becomes `Nick_Happy_1.wav … Nick_Happy_5.wav` through `ClipExporter.ClipFileName`.
+- **Nothing the app can make a sound with may sound while the microphone is open.** `StartRecording`
+  sets `AudioCueService.IsSuppressed` and only Stop or `Abandon` lifts it. A cue that leaks into a
+  take does not annoy the user, it corrupts their recording.
+- **The count-in is audible and visible.** One pre-rendered buffer carries the beats so they cannot
+  drift, and `Countdown` steps 3-2-1 alongside it. Both matter: cue sounds default to off, so a
+  silent count-in with nothing on screen is three seconds of no feedback at all.
 
 ## Head shots
 
-`/headshots` takes a set of portraits from the camera and cuts each one out automatically. It is
-the one feature that does **not** touch the API, and that is the whole point: photographs of
-someone's face are the input where "we only upload it in order to process it" is the wrong trade.
-Capture, background removal, cropping, preview and the ZIP all happen in the tab, and the only
-bytes that ever leave are the ones the user saves to disk.
+The Cutout page is where head shots are taken. There was once a second, browser-only `/headshots`
+page that did the same job locally, because photographs of someone's face are the input where "we
+only upload it in order to process it" is the wrong trade. That argument won: the app has no server
+at all now, so the one remaining page already keeps every pixel on the machine and the duplicate
+was deleted.
 
-That means it deliberately does not reuse the Cutout page's pipeline, which uploads before it
-analyses. Two consequences worth knowing:
-
-- **There is no job, no `CutoutJobId`, and no temp directory.** Shots live in a JS-side map keyed
-  by id; C# holds ids and object URLs and never the pixels, so a page of 2 MP photographs costs the
-  .NET heap almost nothing.
-- **The ZIP is written in the browser**, store-only, by about eighty lines in `camera.js`. PNGs are
-  already deflated so compression would buy nothing, and pulling a ZIP library over the network
-  would undo the self-containment the feature exists for. General-purpose bit 11 is set so a name
-  the user typed with non-ASCII characters survives extraction.
-
-**Cropping needs no face detection.** Once the mask is applied the only opaque pixels left *are* the
-head, so `subjectBounds` takes the alpha bounding box, pads it, and clamps to the frame. An alpha
-floor of 8 rather than 0 keeps feathered edges from dragging the box out to the whole picture. The
-oval on the preview is advisory only — nothing enforces it.
-
-The preview is mirrored in CSS so lining a shot up feels like a mirror; the captured frame is
-deliberately *not* flipped, because saving the mirror would hand back a reversed photograph.
-
-`getUserMedia` needs a secure context, same as the recorder. `SCRIPTS/verify-camera.js` checks the
-two pieces nothing else validates — the crop bounds and the ZIP byte layout — with no browser
-required.
-
-### Known defect on the Cutout page
-
-`CutoutEngine.BrowserOnnx` does not work and reports success anyway. `Cutout.razor`'s
-`ReanalyzeOneAsync` computes the masked PNG in the browser, discards it, and sets `file.Result`;
-the card and the batch ZIP then both fetch `api/cutout/{jobId}/image`, which is the server's copy
-that no engine ever touched. There is no endpoint to post a browser-side result back — the claim
-elsewhere in this document that the browser engine "posts the masked PNG back" describes an
-intention, not the code. Fixing it needs either a `PUT /api/cutout/{jobId}/image` or the local-only
-approach `/headshots` took.
+The preview is mirrored so lining a shot up feels like a mirror; the captured frame is deliberately
+*not* flipped, because saving the mirror would hand back a reversed photograph.
 
 ## Export polish
 
@@ -257,22 +236,22 @@ UI never offers a format the server cannot read.
 
 ## Cutout
 
-`/api/cutout` takes an image and returns a PNG with the background removed. Two engines, both
-free, picked per batch via the API picker:
+`CutoutService` takes an image and returns a PNG with the background removed. There is one engine,
+`OnnxU2Net` — Microsoft.ML.OnnxRuntime running u2netp.onnx in-process, free, good for portraits.
 
-| Engine | Where it runs | Quality | Cost |
-| --- | --- | --- | --- |
-| `OnnxU2Net` | Server (Microsoft.ML.OnnxRuntime + u2netp.onnx) | Good for portraits | Free |
-| `BrowserOnnx` | Browser (onnxruntime-web + u2netp.onnx via JS interop) | Same | Free, no upload of raw pixels |
+`CutoutEngine` once had a second member, `BrowserOnnx`, for onnxruntime-web running in the Blazor
+client. That client is gone and the member was deleted with it: an enum value no code can produce
+is a branch every reader has to rule out by hand.
 
-`IBackgroundRemover` lives in `PoChopAudio.Shared`; the host registers one implementation per
-engine, and the `EnginePicker` exposes only the available ones through `/api/cutout/capabilities`.
-The UI then offers exactly that picker.
+`IBackgroundRemover` and `EnginePicker` survive the collapse to one engine because they are what
+makes the model *optional*. The picker reports an empty engine list when `u2netp.onnx` is absent,
+which is how `CutoutService.IsAvailable` goes false and the page shows a banner instead of
+throwing at startup.
 
 `OnnxU2NetRemover` takes its model path from an injected `CutoutModelOptions` rather than reading
-`IHostEnvironment.ContentRootPath`. That is what lets the engine live in `PoChopAudio.Services`
-with no host dependency: the API resolves the path under its content root, and a desktop host
-resolves it next to the executable. A missing file still leaves the engine simply unavailable.
+it from a hosting abstraction. That is what lets the engine live in `PoChopAudio.Services` with no
+host dependency: the app resolves the path next to the executable. A missing file still leaves the
+engine simply unavailable.
 
 `CutoutService.CutOutAsync` does the whole thing in one call:
 
@@ -293,15 +272,20 @@ removed along with `CutoutExporter` (ZIP and filename templates) and `TrimHelper
 whole-subject crop, superseded by the head crop). `ProgressChannel` went too — it published
 progress that only the deleted SSE endpoint ever subscribed to.
 
-The model file (`u2netp.onnx`, ~4.4 MB) lives in `src/PoChopAudio.WinUI/Content/Models/`. The
-`<None Include="Content/Models/u2netp.onnx" Condition="Exists(...)">` clause means a fresh clone
-builds without it — the API then reports `OnnxU2Net` as unavailable and the UI hides it.
-`SCRIPTS/download-models.ps1` fetches the model from the public U-2-Net release into the right
-folder. It is licensed Apache-2.0; the license file is downloaded alongside.
+`CutoutJobId`, `CutoutUploadResult` and `CutoutResult` outlived that cull by being records nobody
+deleted; with no job to identify and no separate download call to describe, they were dead
+declarations and are now gone too. So is `CutoutCapabilities`: a five-field record whose only
+caller was a test.
 
-The browser engine downloads `onnxruntime-web` from jsDelivr at first use, caches the model in
-IndexedDB, and posts the masked PNG back as `image/png`. The model file is served from the API
-host at `_content/cutout-models/u2netp.onnx`.
+The model file (`u2netp.onnx`, ~4.4 MB) belongs in `src/PoChopAudio.WinUI/Content/Models/` and is
+**not** committed — `.gitignore` excludes it and `SCRIPTS/download-models.ps1` fetches it. The
+csproj's `Content ... Condition="Exists(...)"` clause means a fresh clone builds without it,
+`EnginePicker` drops the engine, the Cutout page shows a banner, and the cutout tests skip
+themselves.
+
+For a while the file was committed anyway, which quietly made all of that dead code: not one of
+those paths could be reached, and every clone carried 4.4 MB of model to guarantee it. Either the
+file ships or the degradation path is real; it cannot be both.
 
 ## Settings and diagnostics
 
@@ -425,6 +409,44 @@ Both were hit building this, and both are silent until runtime:
    `RPC_E_WRONG_THREAD` — the app died at startup with `0xC000027B` before a single log line. What
    the drawing code needs is snapshotted on the UI thread into plain fields.
 
+### Layout, theming and the card lists
+
+Reworked in one pass; the parts that are not obvious from the XAML:
+
+- **`NavigationView.PaneDisplayMode` is `Auto`, not `Left`.** `Left` pins the pane open at every
+  size, so a narrow window spent most of its width on navigation. `Auto` is the control's own
+  adaptive behaviour — full pane, then icon rail, then hamburger.
+- **One `ShaderBackdrop`, in `MainWindow`, behind the `Frame`.** It used to be one per page, so
+  navigating rebuilt a `PixelShaderEffect` and restarted the animation clock each time. Settings
+  moved to the same glass cards as the other pages as a consequence: an opaque card over the
+  gradient reads as a hole punched in the page.
+- **Every page is `NavigationCacheMode="Required"`.** Without it, navigation destroyed and rebuilt
+  the page — which on Cutout meant tearing down `CameraService`'s `MediaFrameReader` and starting a
+  fresh one, a visible second of black viewfinder for nothing.
+- **The card lists are `ItemsRepeater`.** `ItemsControl` has no virtualizing panel, so every card was
+  realized at once and each one owns a live Direct2D surface. This has a hard prerequisite:
+  **`WaveformView` and `BeforeAfterView` create their `CanvasControl` in `Loaded`, not in XAML.**
+  Releasing a surface calls `RemoveFromVisualTree`, which is permanent, and a recycled element is
+  unloaded and then shown again against different data — so re-entering the tree has to build a new
+  one. See `EnsureSurface` in both.
+- **Colours are theme brushes, not literals.** `DangerFill`, `OnDangerFill`, `DangerText`,
+  `ErrorText`, `ErrorBanner` and `WarnBadge` live in `App.xaml`'s theme dictionaries, high contrast
+  included, where they resolve to system colours. Light theme darkens the error red to `#B91C1C`:
+  `#EF4444` on the light card measures about 3.6:1, under the 4.5:1 WCAG AA asks for small text.
+- **The record button's red is the exception, and is inline.** Setting `Background` on
+  `AccentButtonStyle` paints only the rest state — the template's PointerOver and Pressed states
+  assign the accent resources back over it, so the button turned blue under the cursor. It overrides
+  `AccentButtonBackground*` in its own theme dictionaries, which a `Style` cannot carry because
+  `Resources` is not a dependency property, and which cannot alias the shared brushes because a
+  `StaticResource` alias resolves once and freezes the theme.
+- **Uniform `WrapPanel` cells replaced the fixed knob grids.** A three- or four-column `Grid` left
+  roughly 190px for a slider plus its label and value; the labels clipped.
+- **Minimum window size is clamped in `WindowHelper.SetMinimumSize`**, by watching
+  `AppWindow.Changed` and resizing back. `OverlappedPresenter.PreferredMinimumWidth` says this
+  directly but only exists from Windows App SDK 1.7, and moving that pin drags WinUI and Win2D with
+  it. The Cutout viewfinder additionally shrinks to 240px below a 760px window height, so the
+  shutter button — the only control that page exists for — cannot be pushed below the fold.
+
 ### Motion is a system choice
 
 Everything animated routes through `Common/Motion.cs`, which reads the Windows "Show animations"
@@ -444,8 +466,8 @@ run while recording — CPU contention during capture shows up as dropped frames
 - **No primary database, and no Azurite.** A job is still a temp directory that resets on restart.
   The best-effort batch recency index went with the API; a desktop app has no Azurite to reach and
   the index was never load-bearing.
-- **No paid AI services.** Both engines are free (on-device ONNX models). remove.bg was considered
-  and dropped per the no-paid-services decision.
+- **No paid AI services.** The one engine is free and on-device. remove.bg was considered and
+  dropped per the no-paid-services decision.
 - **No per-file progress bar.** Processing is sequential and the status line names the file it is
   on, which is enough at this scale.
 - **No persisted chop or cutout knobs, and no presets.** See "Settings and diagnostics" above: a
@@ -453,5 +475,16 @@ run while recording — CPU contention during capture shows up as dropped frames
 - **No keyboard accelerators, and no device pickers.** The Settings page reports which microphone
   and camera the app resolved to, which is what catches the wrong one being used; choosing a
   different one is a separate feature and is not built.
-- **No face-detection model.** `HeadFinder` crops to the head by reading the shape of the saliency
-  mask — peak, neck, shoulder flare — rather than adding a second ONNX model for faces.
+- **No face-detection *model*.** `HeadFinder` crops to the head by reading the shape of the
+  saliency mask — peak, neck, shoulder flare — rather than adding a second ONNX model for faces.
+  What it does use, when the OS has it, is `WindowsFaceLocator` over the `FaceDetector` that ships
+  with Windows: a measured chin replaces the inference of where the neck is. That adds no download
+  and no package, which is what the rule was actually about, and the mask-shape logic runs unchanged
+  when the component is absent — which is why no test needs it.
+- **No CI beyond build-and-test.** `.github/workflows/ci.yml` restores, builds Release and runs both
+  suites on `windows-latest`. `TreatWarningsAsErrors` is on solution-wide and there is no analyzer
+  config, so that build step *is* the lint gate. There is no packaging, signing or release job: the
+  app is unpackaged and run from `bin`.
+- **No UI tests.** Playwright cannot drive a WinUI 3 window and no WinAppDriver harness is set up.
+  The camera, the microphone, the face locator and the XAML itself are covered by nothing automated;
+  the log file is the only way to see them work.

@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PoChopAudio.Services;
 using PoChopAudio.Services.Cutout;
 using PoChopAudio.Services.Cutout.Engines;
-using PoChopAudio.Shared;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
@@ -27,15 +26,6 @@ public sealed class CutoutPipelineTests
         var picker = new EnginePicker([remover], NullLogger<EnginePicker>.Instance);
 
         _cutout = new CutoutService(picker, NullLoggerFactory.Instance);
-    }
-
-    [Fact]
-    public void CapabilitiesReportTheFormatsThisBuildAccepts()
-    {
-        var caps = _cutout.GetCapabilities();
-
-        Assert.Contains(".jpg", caps.SupportedExtensions);
-        Assert.Equal(CutoutLimits.MaxBatchFiles, caps.MaxBatchFiles);
     }
 
     [Fact]
@@ -120,7 +110,6 @@ public sealed class CutoutPipelineTests
             NullLoggerFactory.Instance);
 
         Assert.False(service.IsAvailable);
-        Assert.Empty(service.GetCapabilities().AvailableEngines);
     }
 
     private static void AssertIsPng(byte[] bytes)

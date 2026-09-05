@@ -14,16 +14,18 @@
         <Grid x:Name="RootGrid">
 
             <!--
-                One Win2D surface for the segment bands, the waveform bars and the spectrogram.
-                This used to be a Canvas holding one Line UIElement per bar - roughly 270 per file
-                at this width, rebuilt from scratch on every resize and every re-split. Ten files
-                on screen meant thousands of live elements in the visual tree for a picture that
-                never needed to be one.
+                The Win2D surface for the segment bands, the waveform bars and the spectrogram is
+                created in code and inserted here, not declared in XAML. Unloading has to call
+                RemoveFromVisualTree to release the Direct2D device, and that is permanent - the
+                control cannot be re-shown afterwards. Now that the card lists virtualize, a card
+                scrolled out of view is recycled and shown again with different data, so the surface
+                has to be re-creatable. See EnsureSurface in the code-behind.
+
+                It is one surface rather than elements: this used to be a Canvas holding one Line
+                UIElement per bar - roughly 270 per file at this width, rebuilt from scratch on
+                every resize and every re-split. Ten files on screen meant thousands of live
+                elements in the visual tree for a picture that never needed to be one.
             -->
-            <win2d:CanvasControl x:Name="Surface"
-                                 Draw="OnDraw"
-                                 CreateResources="OnCreateResources"
-                                 ClearColor="Transparent" />
 
             <!--
                 The playhead is a Composition visual parented here rather than a Line in the canvas
@@ -34,8 +36,8 @@
 
             <!-- Time markers footer -->
             <Grid VerticalAlignment="Bottom" Margin="8,0,8,4" IsHitTestVisible="False">
-                <TextBlock x:Name="StartTimeText" Text="0:00.0" FontSize="10" HorizontalAlignment="Left" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                <TextBlock x:Name="EndTimeText" Text="0:00.0" FontSize="10" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <TextBlock x:Name="StartTimeText" Text="0:00.0" Style="{ThemeResource CaptionTextBlockStyle}" HorizontalAlignment="Left" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <TextBlock x:Name="EndTimeText" Text="0:00.0" Style="{ThemeResource CaptionTextBlockStyle}" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
             </Grid>
 
             <!-- Follows the pointer while hovering, naming the time under it. -->
@@ -45,7 +47,7 @@
                     Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                     CornerRadius="4" Padding="6,2" Margin="0,6,0,0">
-                <TextBlock x:Name="HoverTipText" FontSize="11" FontFamily="Consolas, Cascadia Mono" />
+                <TextBlock x:Name="HoverTipText" Style="{ThemeResource CaptionTextBlockStyle}" FontFamily="Consolas, Cascadia Mono" />
             </Border>
 
             <Border x:Name="BusyBadge"
@@ -53,7 +55,7 @@
                     HorizontalAlignment="Center" VerticalAlignment="Center"
                     Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
                     CornerRadius="4" Padding="10,4">
-                <TextBlock Text="Building frequency view…" FontSize="11" />
+                <TextBlock Text="Building frequency view…" Style="{ThemeResource CaptionTextBlockStyle}" />
             </Border>
         </Grid>
     </Border>

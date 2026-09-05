@@ -11,7 +11,19 @@ namespace PoChopAudio.WinUI.Views;
 
 public sealed partial class CutoutPage : Page
 {
-    private readonly SoftwareBitmapSource _previewSource = new();
+    /// <summary>
+    /// The viewfinder's pixel sink, rebuilt on every load rather than shared across them.
+    /// <para>
+    /// This used to be one instance created in the field initializer and handed to
+    /// <c>PreviewImage.Source</c> in the constructor. Because the page is
+    /// <c>NavigationCacheMode="Required"</c> that single source outlived every unload — and a
+    /// <c>SoftwareBitmapSource</c> does not survive its <c>Image</c> leaving the visual tree. The
+    /// second visit pushed frames into a source whose composition surface was gone, which faults
+    /// inside Microsoft.UI.Xaml.dll as a stowed 0xC000027B: native, so no managed handler ever saw
+    /// it and the log stayed empty. One source per load, disposed with the page.
+    /// </para>
+    /// </summary>
+    private SoftwareBitmapSource? _previewSource;
 
     /// <summary>
     /// Guards the viewfinder against frame pile-up. Frames arrive faster than
@@ -21,6 +33,15 @@ public sealed partial class CutoutPage : Page
     /// </summary>
     private int _previewBusy;
 
+    /// <summary>
+    /// Whether <see cref="OnCameraFrame"/> is currently subscribed. The subscription used to be
+    /// taken in the constructor and dropped in <c>Unloaded</c>, which is not a pair: this page is
+    /// <c>NavigationCacheMode="Required"</c>, so the instance is reused and the constructor never
+    /// runs a second time. Coming back to the page left a live camera with nobody listening.
+    /// Loaded/Unloaded is the symmetric pair; this flag keeps it idempotent if Loaded fires twice.
+    /// </summary>
+    private bool _frameHandlerAttached;
+
     public CutoutViewModel ViewModel { get; }
 
     public CutoutPage()
@@ -28,23 +49,71 @@ public sealed partial class CutoutPage : Page
         ViewModel = App.GetService<CutoutViewModel>();
         InitializeComponent();
 
-        PreviewImage.Source = _previewSource;
-        ViewModel.Camera.FrameArrived += OnCameraFrame;
-
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // App.MainWindow does not exist while the page is being constructed — the frame navigates
+        // here from the window's own constructor — so the pickers' owner is wired up on load.
+        ViewModel.Host = App.MainWindow;
+
+        _previewSource = new SoftwareBitmapSource();
+        PreviewImage.Source = _previewSource;
+
+        // A frame that was mid-flight when the page unloaded never ran its continuation, so the
+        // guard could be left latched and the new viewfinder would take no frames at all.
+        Interlocked.Exchange(ref _previewBusy, 0);
+
+        if (!_frameHandlerAttached)
+        {
+            ViewModel.Camera.FrameArrived += OnCameraFrame;
+            _frameHandlerAttached = true;
+        }
+
         // Bring the viewfinder up straight away so TAKE PHOTO is the only thing to click.
-        await ViewModel.StartCameraAsync();
+        //
+        // Guarded because this is an async void handler: StartCameraAsync has a try/finally but no
+        // catch, so a device that faults on open would throw past the await into the runtime's
+        // unhandled hook and take the process down on page load.
+        try
+        {
+            await ViewModel.StartCameraAsync();
+        }
+        catch (Exception exception)
+        {
+            ViewModel.ErrorMessage = $"Could not start the camera: {exception.Message}";
+        }
     }
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        ViewModel.Camera.FrameArrived -= OnCameraFrame;
-        await ViewModel.Camera.StopAsync();
+        // Order matters: stop the frames, then take the sink down. The other way round leaves a
+        // window in which a frame is handed to a source that is already being disposed.
+        if (_frameHandlerAttached)
+        {
+            ViewModel.Camera.FrameArrived -= OnCameraFrame;
+            _frameHandlerAttached = false;
+        }
+
+        // Through the view model, never CameraService directly: the view model's IsCameraRunning
+        // is what the viewfinder binds to, and stopping behind its back left the page bound to a
+        // disposed frame reader. Guarded for the same reason as OnLoaded — and here a throw would
+        // also leave the sink below undisposed.
+        try
+        {
+            await ViewModel.StopCameraAsync();
+        }
+        catch (Exception)
+        {
+            // Navigating away from a camera that is already gone is not worth reporting.
+        }
+
+        var source = _previewSource;
+        _previewSource = null;
+        PreviewImage.Source = null;
+        source?.Dispose();
     }
 
     private void OnCameraFrame(SoftwareBitmap frame)
@@ -55,14 +124,29 @@ public sealed partial class CutoutPage : Page
         }
 
         // The frame belongs to the camera thread and is disposed the moment this returns, so copy
-        // before handing it to the UI thread.
-        var copy = SoftwareBitmap.Copy(frame);
+        // before handing it to the UI thread. The copy itself can still throw RO_E_CLOSED if the
+        // reader was torn down mid-frame — on the camera thread, where nothing would catch it.
+        SoftwareBitmap copy;
+        try
+        {
+            copy = SoftwareBitmap.Copy(frame);
+        }
+        catch (Exception)
+        {
+            Interlocked.Exchange(ref _previewBusy, 0);
+            return;
+        }
 
         if (!DispatcherQueue.TryEnqueue(async () =>
             {
                 try
                 {
-                    await _previewSource.SetBitmapAsync(copy);
+                    // Re-read on the UI thread: Unloaded may have cleared it since the enqueue.
+                    var sink = _previewSource;
+                    if (sink is not null)
+                    {
+                        await sink.SetBitmapAsync(copy);
+                    }
                 }
                 catch
                 {
@@ -79,8 +163,6 @@ public sealed partial class CutoutPage : Page
             Interlocked.Exchange(ref _previewBusy, 0);
         }
     }
-
-
 
 
     /// <summary>
@@ -124,19 +206,4 @@ public sealed partial class CutoutPage : Page
             Motion.EnableListItemAnimations(card);
         }
     }
-
-    private async void OnSaveAllToFolderClicked(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.SaveAllToFolderAsync(App.MainWindow);
-    }
-
-
-    private async void OnSaveSingleCutoutClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: CutoutFileItem item })
-        {
-            await ViewModel.SaveSingleCutoutAsync((item, App.MainWindow));
-        }
-    }
-
 }

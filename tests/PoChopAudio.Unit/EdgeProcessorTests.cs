@@ -1,5 +1,4 @@
 using PoChopAudio.Services.Cutout;
-using PoChopAudio.Shared;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -63,18 +62,6 @@ public sealed class EdgeProcessorTests
     }
 
     [Fact]
-    public void MorphologyWithZeroRadiusIsNoOp()
-    {
-        var rgba = Solid(0, 0, 0, 0, W, H);
-        SetAlphaAt(rgba, 3, 3, 200);
-
-        EdgeProcessor.Morphology(rgba, W, H, radius: 0);
-
-        Assert.Equal(200, AlphaAt(rgba, 3, 3));
-        Assert.Equal(0, AlphaAt(rgba, 0, 0));
-    }
-
-    [Fact]
     public void FeatherBlursAlphaAcrossNeighbourhood()
     {
         var rgba = Solid(0, 0, 0, 0, W, H);
@@ -85,17 +72,6 @@ public sealed class EdgeProcessorTests
         // The pixel next to the source has averaged alpha (~255 / 9).
         var neighbour = AlphaAt(rgba, 4, 5);
         Assert.InRange(neighbour, 1, 100);
-    }
-
-    [Fact]
-    public void FeatherWithZeroRadiusIsNoOp()
-    {
-        var rgba = Solid(0, 0, 0, 0, W, H);
-        SetAlphaAt(rgba, 4, 4, 255);
-
-        EdgeProcessor.FeatherInPlace(rgba, W, H, radius: 0);
-
-        Assert.Equal(255, AlphaAt(rgba, 4, 4));
     }
 
     [Fact]

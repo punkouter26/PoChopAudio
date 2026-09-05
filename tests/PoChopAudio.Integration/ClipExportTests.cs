@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NAudio.Wave;
 using PoChopAudio.Services;
 using PoChopAudio.Services.Chop;
-using PoChopAudio.Shared;
 using Xunit;
 
 namespace PoChopAudio.Integration;
@@ -153,14 +152,14 @@ public sealed class ClipExportTests : IDisposable
         }
     }
 
-    private byte[] Clip(string jobId, ExportOptions export)
+    private byte[] Clip(JobId jobId, ExportOptions export)
     {
         var outcome = _chop.GetClip(jobId, 1, export);
         Assert.True(outcome.IsSuccess, outcome.Message);
         return outcome.Value.Content;
     }
 
-    private async Task<string> UploadAndAnalyzeAsync(bool silent = false)
+    private async Task<JobId> UploadAndAnalyzeAsync(bool silent = false)
     {
         using var source = new MemoryStream(BuildRecording(silent));
         var upload = await _chop.UploadAsync(source, "takes.wav", source.Length);

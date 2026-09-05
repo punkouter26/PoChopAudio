@@ -1,5 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using PoChopAudio.Shared;
+using PoChopAudio.Services.Chop;
 
 namespace PoChopAudio.WinUI.Models;
 
@@ -33,24 +33,5 @@ public partial class ExportKnobsModel : ObservableObject
         FadeInMs = FadeInMs,
         FadeOutMs = FadeOutMs,
     };
-
-    public string ToQueryString()
-    {
-        if (Normalize == NormalizeMode.None && FadeInMs <= 0 && FadeOutMs <= 0)
-        {
-            return string.Empty;
-        }
-
-        var parts = new List<string> { $"normalize={Normalize}" };
-        if (Normalize != NormalizeMode.None)
-        {
-            parts.Add($"targetDb={TargetDb:F1}");
-            parts.Add($"ceilingDb={CeilingDb:F1}");
-        }
-        if (FadeInMs > 0) parts.Add($"fadeInMs={FadeInMs:F0}");
-        if (FadeOutMs > 0) parts.Add($"fadeOutMs={FadeOutMs:F0}");
-
-        return string.Join('&', parts);
-    }
 }
 

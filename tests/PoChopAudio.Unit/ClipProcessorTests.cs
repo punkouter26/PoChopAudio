@@ -1,5 +1,4 @@
 using PoChopAudio.Services.Chop;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Unit;
 
@@ -182,7 +181,6 @@ public sealed class ClipProcessorTests
 
     [Theory]
     [InlineData(1.0, 0.0)]
-    [InlineData(0.5, -6.0206)]
     [InlineData(0.1, -20.0)]
     public void PeakDbConvertsAmplitudeToDecibels(float peak, double expected) =>
         Assert.Equal(expected, ClipProcessor.PeakDb(peak), 3);

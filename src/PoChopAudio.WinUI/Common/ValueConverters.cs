@@ -86,3 +86,34 @@ public sealed class LabelWithValueConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         throw new NotSupportedException();
 }
+
+/// <summary>
+/// Two-way bridge between an enum property and <c>ComboBox.SelectedIndex</c>, for a combo whose
+/// items are declared in source order.
+/// <para>
+/// This exists to kill a shim. The normalize combo used to bind to a plain CLR property on the
+/// page that cast to and from <c>int</c>. A plain property raises no change notification, so
+/// "Reset to defaults" — which replaces the whole knobs object — left the combo showing the old
+/// mode while the view model exported with the new one. Binding the enum itself means the combo
+/// is told when it changes.
+/// </para>
+/// </summary>
+public sealed class EnumToIndexConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        value is Enum e ? System.Convert.ToInt32(e, System.Globalization.CultureInfo.InvariantCulture) : 0;
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language)
+    {
+        // targetType is the nullable-stripped enum the source property declares.
+        var enumType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        if (!enumType.IsEnum || value is not int index)
+        {
+            return value;
+        }
+
+        // A ComboBox reports -1 while it has no selection, which is not a member of any enum.
+        var values = Enum.GetValues(enumType);
+        return index >= 0 && index < values.Length ? values.GetValue(index)! : values.GetValue(0)!;
+    }
+}

@@ -1,5 +1,3 @@
-using PoChopAudio.Shared;
-
 namespace PoChopAudio.Services.Chop;
 
 /// <summary>
@@ -58,7 +56,7 @@ public static class SegmentDetector
         var segments = BuildSegments(envelope, runs, gateDb, options.PadMs);
 
         return new AnalysisResult(
-            JobId: string.Empty,
+            JobId: default,
             DurationSeconds: envelope.DurationSeconds,
             ThresholdDb: Math.Round(gateDb, 2),
             NoiseFloorDb: Math.Round(envelope.NoiseFloorDb, 2),
@@ -68,7 +66,7 @@ public static class SegmentDetector
     }
 
     private static AnalysisResult Empty(AudioEnvelope envelope, string warning) => new(
-        JobId: string.Empty,
+        JobId: default,
         DurationSeconds: envelope.DurationSeconds,
         ThresholdDb: Math.Round(envelope.NoiseFloorDb + MinContrastDb / 2, 2),
         NoiseFloorDb: Math.Round(envelope.NoiseFloorDb, 2),

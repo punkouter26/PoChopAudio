@@ -3,10 +3,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media.Imaging;
 using PoChopAudio.Services.Chop;
 using PoChopAudio.Services.Dsp;
-using PoChopAudio.Shared;
 using PoChopAudio.WinUI.Common;
 using PoChopAudio.WinUI.Models;
 using PoChopAudio.WinUI.Services;
@@ -14,10 +12,14 @@ using Windows.Storage.Pickers;
 
 namespace PoChopAudio.WinUI.ViewModels;
 
+/// <summary>
+/// The chop page: the loaded recordings, the knobs, and everything that turns them into clips.
+/// Capturing a take lives in <see cref="RecordingViewModel"/>, reached through
+/// <see cref="Recording"/>, which hands finished audio back through its TakeRecorded event.
+/// </summary>
 public partial class ChopViewModel : ObservableObject, IDisposable
 {
     private readonly ChopService _chop;
-    private readonly AudioRecorderService _recorder;
     private readonly AudioPlayerService _player;
     private readonly AppSettingsService _settings;
     private readonly AudioCueService _cues;
@@ -27,36 +29,25 @@ public partial class ChopViewModel : ObservableObject, IDisposable
 
     public ChopViewModel(
         ChopService chop,
-        AudioRecorderService recorder,
+        RecordingViewModel recording,
         AudioPlayerService player,
         AppSettingsService settings,
         AudioCueService cues)
     {
         _chop = chop;
-        _recorder = recorder;
         _player = player;
         _settings = settings;
         _cues = cues;
+        Recording = recording;
+
         _cues.IsEnabled = settings.Current.CueSoundsEnabled;
         settings.Changed += s => _cues.IsEnabled = s.CueSoundsEnabled;
 
-        // Every callback below arrives on a background thread -- LevelUpdated on NAudio's capture
-        // thread, ElapsedUpdated on a System.Timers.Timer thread, and the player's on its own.
-        // Setting observable properties there raises PropertyChanged off the UI thread, which the
-        // XAML bindings cannot act on: the level meter stayed at -inf dB and the elapsed clock sat
-        // at 00:00 for the whole take. Marshal first, then set.
-        _recorder.LevelUpdated += (peak, rms, clip) => OnUiThread(() =>
-        {
-            PeakDb = peak;
-            RmsDb = rms;
-            IsClipping = clip;
-        });
+        Recording.TakeRecorded += OnTakeRecorded;
+        Recording.StatusReported += message => StatusMessage = message;
 
-        _recorder.ElapsedUpdated += elapsed => OnUiThread(() =>
-        {
-            RecordingElapsed = $"{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
-        });
-
+        // The player's callbacks arrive on its own thread. Setting observable properties there
+        // raises PropertyChanged off the UI thread, which the XAML bindings cannot act on.
         _player.PositionUpdated += (curr, total) => OnUiThread(() =>
         {
             if (ActivePlayingItem is not null && total > 0)
@@ -85,7 +76,6 @@ public partial class ChopViewModel : ObservableObject, IDisposable
             }
         });
 
-        // Listen for batch knob changes
         BatchKnobs.PropertyChanged += (s, e) =>
         {
             _debouncer.Debounce(async () => await ResplitBatchAutoAsync());
@@ -93,6 +83,20 @@ public partial class ChopViewModel : ObservableObject, IDisposable
 
         Files.CollectionChanged += (s, e) => NotifyCountProperties();
     }
+
+    /// <summary>Capturing a take. Owns the recorder, the count-in and the input meter.</summary>
+    public RecordingViewModel Recording { get; }
+
+    /// <summary>
+    /// The window file pickers hang off. Set by the page once it is loaded, because
+    /// <c>App.MainWindow</c> does not exist yet while the page is being constructed.
+    /// <para>
+    /// This is what lets every button on the page bind a command instead of a Click handler: the
+    /// commands that save a file no longer need a Window passed in as a parameter, which XAML had
+    /// no way to supply.
+    /// </para>
+    /// </summary>
+    public Window? Host { get; set; }
 
     /// <summary>
     /// Runs <paramref name="action"/> on the UI thread, inline when already there.
@@ -109,14 +113,15 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Re-reads the counts the page shows. This used to raise six changes, five of which were
+    /// bound by nothing at all — FilesSummaryText, ReadyCount, AttentionCount and UntunedCount
+    /// were computed and notified on every collection change and displayed nowhere.
+    /// </summary>
     public void NotifyCountProperties()
     {
         OnPropertyChanged(nameof(HasFiles));
-        OnPropertyChanged(nameof(FilesSummaryText));
         OnPropertyChanged(nameof(TotalClips));
-        OnPropertyChanged(nameof(ReadyCount));
-        OnPropertyChanged(nameof(AttentionCount));
-        OnPropertyChanged(nameof(UntunedCount));
     }
 
     [ObservableProperty]
@@ -138,61 +143,27 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     private string? _errorMessage;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StartRecordingCommand))]
-    [NotifyPropertyChangedFor(nameof(CanStartRecording))]
-    [NotifyPropertyChangedFor(nameof(NeedsRecordingName))]
-    private bool _isRecording;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StartRecordingCommand))]
-    [NotifyPropertyChangedFor(nameof(CanStartRecording))]
-    [NotifyPropertyChangedFor(nameof(NeedsRecordingName))]
-    private string _recordingName = string.Empty;
-
-    [ObservableProperty]
-    private string _recordingElapsed = "00:00";
-
-    [ObservableProperty]
-    private int _countdown;
-
-    [ObservableProperty]
-    private double _peakDb = -100;
-
-    [ObservableProperty]
-    private double _rmsDb = -100;
-
-    [ObservableProperty]
-    private bool _isClipping;
-
-    [ObservableProperty]
     private ChopFileItem? _activePlayingItem;
 
-    [ObservableProperty]
-    private ChopCapabilities? _capabilities;
-
     public bool HasFiles => Files.Count > 0;
-    public string FilesSummaryText => $"{Files.Count} files · {TotalClips} clips";
-    public int TotalClips => Files.Sum(f => f.Segments.Count);
-    public int ReadyCount => Files.Count(f => f.IsReady);
-    public int AttentionCount => Files.Count(f => f.NeedsAttention);
-    public int UntunedCount => Files.Count(f => !f.UsesOwnSettings && f.IsReady);
 
-    public Task InitializeAsync()
-    {
-        Capabilities = _chop.GetCapabilities();
-        return Task.CompletedTask;
-    }
+    /// <summary>How many clips the whole batch would export. Used by the save progress message.</summary>
+    public int TotalClips => Files.Sum(f => f.Segments.Count);
 
     [RelayCommand]
-    public async Task PickFilesAsync(Window window)
+    public async Task PickFilesAsync()
     {
+        if (Host is null)
+        {
+            return;
+        }
+
         ErrorMessage = null;
         var picker = new FileOpenPicker();
-        WindowHelper.InitWithWindow(picker, window);
+        WindowHelper.InitWithWindow(picker, Host);
         picker.SuggestedStartLocation = PickerLocationId.MusicLibrary;
 
-        var exts = Capabilities?.SupportedExtensions ?? [".wav", ".mp3", ".aiff", ".aif"];
-        foreach (var ext in exts)
+        foreach (var ext in AudioDecoder.SupportedExtensions)
         {
             picker.FileTypeFilter.Add(ext);
         }
@@ -200,8 +171,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         var picked = await picker.PickMultipleFilesAsync();
         if (picked is not null && picked.Count > 0)
         {
-            var paths = picked.Select(p => p.Path).ToList();
-            await AddFilesAsync(paths);
+            await AddFilesAsync(picked.Select(p => p.Path).ToList());
         }
     }
 
@@ -224,6 +194,7 @@ public partial class ChopViewModel : ObservableObject, IDisposable
             var fileInfo = new FileInfo(path);
             var item = new ChopFileItem
             {
+                Owner = this,
                 FileName = fileInfo.Name,
                 LocalFilePath = path,
                 SizeBytes = fileInfo.Exists ? fileInfo.Length : 0,
@@ -291,64 +262,12 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>
-    /// A take has to be named before it can be recorded. The name becomes the WAV's filename and
-    /// every clip stem chopped out of it, so an unnamed take lands as an opaque Take_[timestamp]
-    /// that is impossible to tell apart from the next one in a batch.
-    /// </summary>
-    public bool CanStartRecording => !IsRecording && !string.IsNullOrWhiteSpace(RecordingName);
-
-    /// <summary>True only when the missing name is what is holding recording up, so the hint does
-    /// not stay on screen while a take is already running.</summary>
-    public bool NeedsRecordingName => !IsRecording && string.IsNullOrWhiteSpace(RecordingName);
-
-    [RelayCommand(CanExecute = nameof(CanStartRecording))]
-    public async Task StartRecordingAsync()
+    /// <summary>Takes a finished recording off <see cref="Recording"/> and runs it through the batch.</summary>
+    private async void OnTakeRecorded(byte[] wavBytes, string fileName)
     {
-        if (!CanStartRecording) return;
-
-        ErrorMessage = null;
-
-        // The audible count-in is rendered as one buffer and started here, so its beats cannot
-        // drift; the visible numbers are then stepped alongside it. When cue sounds are off this
-        // degrades to exactly the silent countdown it replaced.
-        const int beats = 3;
-        const double bpm = 60;
-        _cues.PlayCountIn(beats, bpm);
-
-        for (var c = beats; c > 0; c--)
-        {
-            Countdown = c;
-            await Task.Delay(TimeSpan.FromSeconds(60.0 / bpm));
-        }
-
-        Countdown = 0;
-
-        // Nothing this class can make a sound with may do so from here until Stop: a cue that
-        // leaks into a take does not annoy the user, it corrupts their recording.
-        _cues.IsSuppressed = true;
-        _recorder.Start();
-        IsRecording = true;
-    }
-
-    [RelayCommand]
-    public async Task StopRecordingAsync()
-    {
-        if (!IsRecording) return;
-
-        IsRecording = false;
-        var wavBytes = _recorder.Stop();
-        _cues.IsSuppressed = false;
-
-        if (wavBytes.Length == 0) return;
-
-        var stem = string.IsNullOrWhiteSpace(RecordingName)
-            ? $"Take_{DateTime.Now:yyyyMMdd_HHmmss}"
-            : RecordingName.Trim();
-
-        var fileName = $"{stem}.wav";
         var item = new ChopFileItem
         {
+            Owner = this,
             FileName = fileName,
             SizeBytes = wavBytes.Length,
             Settings = BatchKnobs.Clone(),
@@ -366,6 +285,13 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         {
             using var ms = new MemoryStream(wavBytes);
             await UploadAndAnalyzeItemAsync(item, ms, fileName);
+        }
+        catch (Exception exception)
+        {
+            // async void because an event handler has nowhere to return a Task to. Nothing may
+            // escape it: an exception here reaches the runtime's unhandled handler and takes the
+            // process down mid-session with the take unsaved.
+            ErrorMessage = exception.Message;
         }
         finally
         {
@@ -446,22 +372,6 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>
-    /// Plays a 1 kHz tone at -18 dBFS so the input meter can be read against a known level before a
-    /// take rather than after one.
-    /// </summary>
-    [RelayCommand]
-    public void PlayReferenceTone()
-    {
-        if (IsRecording)
-        {
-            return;
-        }
-
-        _cues.PlayReferenceTone();
-        StatusMessage = "Playing a 1 kHz reference tone at -18 dBFS.";
-    }
-
     private async Task ResplitBatchAutoAsync()
     {
         var targets = Files.Where(f => !f.UsesOwnSettings && f.IsReady).ToList();
@@ -501,7 +411,9 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public async Task ResplitOneAsync(ChopFileItem item)
     {
-        if (string.IsNullOrEmpty(item.JobId)) return;
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (item.JobId == default) return;
 
         try
         {
@@ -519,16 +431,43 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Detaches one file from the batch knobs and re-splits it with its own.</summary>
     [RelayCommand]
-    public void FollowBatch(ChopFileItem item)
+    public async Task ResplitDetachedAsync(ChopFileItem item)
     {
+        ArgumentNullException.ThrowIfNull(item);
+
+        item.UsesOwnSettings = true;
+        await ResplitOneAsync(item);
+    }
+
+    /// <summary>Puts a detached file back under the batch knobs and re-splits it with them.</summary>
+    [RelayCommand]
+    public async Task FollowBatchAsync(ChopFileItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
         item.UsesOwnSettings = false;
         item.Settings.LoadFrom(BatchKnobs.ToOptions());
-        _ = ResplitOneAsync(item);
+        await ResplitOneAsync(item);
     }
+
+    /// <summary>Plays a whole recording — the original file when it is still on disk, else take 1.</summary>
+    [RelayCommand]
+    public Task PlayWholeRecordingAsync(ChopFileItem item) => PlayTakeAsync(item, null);
+
+    /// <summary>
+    /// Plays one detected sound. Takes the segment alone because that is all a row inside the
+    /// takes list can bind; the file it belongs to is the one holding it.
+    /// </summary>
+    [RelayCommand]
+    public Task PlaySegmentAsync(ChopSegment segment) =>
+        FileOf(segment) is { } item ? PlayTakeAsync(item, segment) : Task.CompletedTask;
 
     public async Task PlayTakeAsync(ChopFileItem item, ChopSegment? segment)
     {
+        ArgumentNullException.ThrowIfNull(item);
+
         if (item.IsPlaying && item.PlayingSegmentIndex == segment?.Index)
         {
             _player.Stop();
@@ -543,22 +482,18 @@ public partial class ChopViewModel : ObservableObject, IDisposable
                 wavBytes = await Task.Run(
                     () => _chop.GetClip(item.JobId, segment.Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
             }
+            else if (!string.IsNullOrEmpty(item.LocalFilePath) && File.Exists(item.LocalFilePath))
+            {
+                wavBytes = await File.ReadAllBytesAsync(item.LocalFilePath, _cts.Token);
+            }
+            else if (item.Segments.Count > 0)
+            {
+                wavBytes = await Task.Run(
+                    () => _chop.GetClip(item.JobId, item.Segments[0].Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
+            }
             else
             {
-                // Play entire audio if local file exists, or fetch take 1
-                if (!string.IsNullOrEmpty(item.LocalFilePath) && File.Exists(item.LocalFilePath))
-                {
-                    wavBytes = await File.ReadAllBytesAsync(item.LocalFilePath, _cts.Token);
-                }
-                else if (item.Segments.Count > 0)
-                {
-                    wavBytes = await Task.Run(
-                        () => _chop.GetClip(item.JobId, item.Segments[0].Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
-                }
-                else
-                {
-                    return;
-                }
+                return;
             }
 
             if (ActivePlayingItem is not null && ActivePlayingItem != item)
@@ -587,18 +522,14 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public void StopPlayback()
+    public async Task ExportBatchZipAsync()
     {
-        _player.Stop();
-    }
+        if (Host is null) return;
 
-    [RelayCommand]
-    public async Task ExportBatchZipAsync(Window window)
-    {
         var ready = Files.Where(f => f.IsReady).ToList();
         if (ready.Count == 0) return;
 
-        var savePath = await ExportService.PickSaveFileAsync(window, "clips.zip", ".zip", "ZIP Archive");
+        var savePath = await ExportService.PickSaveFileAsync(Host, "clips.zip", ".zip", "ZIP Archive");
         if (string.IsNullOrEmpty(savePath)) return;
 
         IsBusy = true;
@@ -623,26 +554,26 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public async Task SaveAllToFolderAsync(Window window)
+    public async Task SaveAllToFolderAsync()
     {
+        if (Host is null) return;
+
         var ready = Files.Where(f => f.IsReady).ToList();
         if (ready.Count == 0) return;
 
-        var folderPath = await ExportService.ResolveBatchFolderAsync(window, _settings);
+        var folderPath = await ExportService.ResolveBatchFolderAsync(Host, _settings);
         if (string.IsNullOrEmpty(folderPath)) return;
 
         IsBusy = true;
         try
         {
             int totalSaved = 0;
-            for (int f = 0; f < ready.Count; f++)
+            foreach (var fileItem in ready)
             {
-                var fileItem = ready[f];
                 var stem = Path.GetFileNameWithoutExtension(fileItem.FileName);
 
-                for (int s = 0; s < fileItem.Segments.Count; s++)
+                foreach (var seg in fileItem.Segments)
                 {
-                    var seg = fileItem.Segments[s];
                     StatusMessage = $"Saving {stem}_{seg.Index}.wav ({totalSaved + 1} of {TotalClips})…";
 
                     var clipBytes = await Task.Run(
@@ -664,18 +595,23 @@ public partial class ChopViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Saves one detected sound as its own WAV.</summary>
     [RelayCommand]
-    public async Task SaveTakeClipAsync((ChopFileItem Item, ChopSegment Segment, Window Window) args)
+    public async Task SaveSegmentAsync(ChopSegment segment)
     {
-        var stem = Path.GetFileNameWithoutExtension(args.Item.FileName);
-        var defaultName = $"{stem}_{args.Segment.Index}.wav";
-        var savePath = await ExportService.PickSaveFileAsync(args.Window, defaultName, ".wav", "WAV Audio");
+        ArgumentNullException.ThrowIfNull(segment);
+
+        if (Host is null || FileOf(segment) is not { } item) return;
+
+        var stem = Path.GetFileNameWithoutExtension(item.FileName);
+        var defaultName = $"{stem}_{segment.Index}.wav";
+        var savePath = await ExportService.PickSaveFileAsync(Host, defaultName, ".wav", "WAV Audio");
         if (string.IsNullOrEmpty(savePath)) return;
 
         try
         {
             var bytes = await Task.Run(
-                () => _chop.GetClip(args.Item.JobId, args.Segment.Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
+                () => _chop.GetClip(item.JobId, segment.Index, ExportKnobs.ToOptions()).OrThrow().Content, _cts.Token);
             await ExportService.SaveBytesToFileAsync(bytes, savePath, _cts.Token);
         }
         catch (Exception ex)
@@ -683,6 +619,10 @@ public partial class ChopViewModel : ObservableObject, IDisposable
             ErrorMessage = $"Failed to save clip: {ex.Message}";
         }
     }
+
+    /// <summary>The recording a segment was cut from.</summary>
+    private ChopFileItem? FileOf(ChopSegment segment) =>
+        Files.FirstOrDefault(f => f.Segments.Contains(segment));
 
     [RelayCommand]
     public void ClearAll()
@@ -713,26 +653,18 @@ public partial class ChopViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public void StartOver()
     {
-        if (IsRecording)
-        {
-            // Abandon rather than finish: StopRecordingAsync would save the take we are about to
-            // discard. Stop() still has to run so the capture device is released.
-            IsRecording = false;
-            _ = _recorder.Stop();
-        }
-
+        Recording.Abandon();
         ClearAll();
         ResetSettings();
-        RecordingName = string.Empty;
     }
 
     public void Dispose()
     {
+        Recording.TakeRecorded -= OnTakeRecorded;
         _cts.Cancel();
         _cts.Dispose();
         _debouncer.Dispose();
-        _recorder.Dispose();
+        Recording.Dispose();
         _player.Dispose();
     }
 }
-

@@ -1,5 +1,3 @@
-using PoChopAudio.Shared;
-
 namespace PoChopAudio.Services.Cutout;
 
 /// <summary>Head-only crop rectangle, in pixels, within the source image.</summary>

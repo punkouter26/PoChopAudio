@@ -1,26 +1,23 @@
 using Microsoft.Extensions.Logging;
 using PoChopAudio.Services.Dsp;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Services.Chop;
 
 /// <summary>
-/// The whole chop feature, independent of how it is reached. The API wraps this in HTTP and the
-/// desktop client calls it in-process; both get the same validation, the same trim-and-shift
-/// arithmetic and the same file names, because there is only one copy of them.
+/// The whole chop feature. Upload decodes once to a canonical WAV, analyze re-runs only the cheap
+/// tuning step against it, and export renders on demand — so turning a knob never re-decodes.
+///
+/// <para>
+/// Every method is synchronous apart from <see cref="UploadAsync"/>: the DSP here is real work and
+/// the caller decides which thread pays for it. From a view model that means <c>Task.Run</c>.
+/// </para>
 /// </summary>
 public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory)
 {
     private const string NotFoundMessage =
-        "That upload has expired or was never received. Upload the file again.";
+        "That recording is no longer loaded. Add the file again.";
 
     private readonly ILogger _logger = ChopLog.CreateLogger(loggerFactory);
-
-    public ChopCapabilities GetCapabilities() => new(
-        SupportedExtensions: AudioDecoder.SupportedExtensions,
-        Description: AudioDecoder.SupportedExtensionsDescription,
-        MaxBatchFiles: ChopLimits.MaxBatchFiles,
-        MaxUploadMb: (int)(ChopLimits.MaxUploadBytes / (1024 * 1024)));
 
     /// <summary>Decodes an upload to canonical WAV inside a fresh job directory.</summary>
     /// <param name="length">Byte count, passed separately because a form stream cannot always report it.</param>
@@ -68,7 +65,7 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
             ChopLog.Decoded(_logger, fileName, job.Id.ToString(), envelope.DurationSeconds, envelope.SampleRate, envelope.Channels);
 
             return Outcome<UploadResult>.Ok(new UploadResult(
-                JobId: job.Id.ToString(),
+                JobId: job.Id,
                 FileName: fileName,
                 DurationSeconds: Math.Round(envelope.DurationSeconds, 3),
                 SampleRate: envelope.SampleRate,
@@ -87,7 +84,7 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
     }
 
     /// <summary>Re-runs detection against the already-decoded audio. Cheap enough to call per knob turn.</summary>
-    public Outcome<AnalysisResult> Analyze(string? jobId, ChopOptions options)
+    public Outcome<AnalysisResult> Analyze(JobId jobId, ChopOptions options)
     {
         if (store.Find(jobId) is not { Envelope: { } envelope } job)
         {
@@ -108,7 +105,7 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
         var trimEnd = end * frameMs / 1000d;
 
         var working = SliceEnvelope(envelope, start, end);
-        var result = SegmentDetector.Detect(working, options) with { JobId = job.Id.ToString() };
+        var result = SegmentDetector.Detect(working, options) with { JobId = job.Id };
 
         if (trimStart > 0 || trimEnd < envelope.DurationSeconds)
         {
@@ -145,7 +142,7 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
     /// this is firmly in the "call it through Task.Run or the window freezes" category.
     /// </para>
     /// </summary>
-    public Outcome<SpectrogramData> GetSpectrogram(string? jobId, int columns, int bins)
+    public Outcome<SpectrogramData> GetSpectrogram(JobId jobId, int columns, int bins)
     {
         if (columns < 1 || bins < 1)
         {
@@ -181,7 +178,7 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
     }
 
     /// <summary>Renders one take as a WAV file.</summary>
-    public Outcome<ExportedFile> GetClip(string? jobId, int index, ExportOptions export)
+    public Outcome<ExportedFile> GetClip(JobId jobId, int index, ExportOptions export)
     {
         if (ValidateExport(export) is { Count: > 0 } errors)
         {
@@ -204,36 +201,11 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
             ExportedFile.Wav));
     }
 
-    /// <summary>Renders every take of one recording as a ZIP of WAVs.</summary>
-    public Outcome<ExportedFile> GetZip(string? jobId, ExportOptions export)
-    {
-        if (ValidateExport(export) is { Count: > 0 } errors)
-        {
-            return Outcome<ExportedFile>.Invalid(errors);
-        }
-
-        if (store.Find(jobId) is not { } job)
-        {
-            return Outcome<ExportedFile>.NotFound(NotFoundMessage);
-        }
-
-        if (job.Segments.Count == 0)
-        {
-            return Outcome<ExportedFile>.NotFound("There is nothing to download. Run analyze first.");
-        }
-
-        var stem = Path.GetFileNameWithoutExtension(job.OriginalFileName);
-        return Outcome<ExportedFile>.Ok(new ExportedFile(
-            ClipExporter.RenderZip(job, export),
-            $"{(string.IsNullOrWhiteSpace(stem) ? "clips" : stem)}_clips.zip",
-            ExportedFile.Zip));
-    }
-
     /// <summary>
     /// Renders the takes of several recordings as one flat ZIP. Unknown ids are skipped rather than
     /// fatal: one expired job should not block the rest of the batch.
     /// </summary>
-    public Outcome<ExportedFile> GetBatchZip(IReadOnlyList<string> jobIds, ExportOptions export)
+    public Outcome<ExportedFile> GetBatchZip(IReadOnlyList<JobId> jobIds, ExportOptions export)
     {
         if (ValidateExport(export) is { Count: > 0 } errors)
         {
@@ -264,14 +236,8 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
             ExportedFile.Zip));
     }
 
-    /// <summary>Discards an upload. An unknown id is a no-op, so this is safe to call twice.</summary>
-    public void Delete(string? jobId)
-    {
-        if (store.Find(jobId) is { } job)
-        {
-            store.Remove(job.Id);
-        }
-    }
+    /// <summary>Discards a recording. An unknown id is a no-op, so this is safe to call twice.</summary>
+    public void Delete(JobId jobId) => store.Remove(jobId);
 
     /// <summary>Drops the envelope to the trimmed frame range, rescaling the display waveform with it.</summary>
     internal static AudioEnvelope SliceEnvelope(AudioEnvelope envelope, int startFrame, int endFrame)
@@ -339,11 +305,7 @@ public sealed class ChopService(ChopJobStore store, ILoggerFactory loggerFactory
         }
     }
 
-    /// <summary>
-    /// Field-keyed errors for the export knobs. These live here rather than on the API's query
-    /// binder so the desktop client, which builds <see cref="ExportOptions"/> directly, is held to
-    /// exactly the same limits.
-    /// </summary>
+    /// <summary>Field-keyed errors for the export knobs, empty when they are usable.</summary>
     internal static Dictionary<string, string[]> ValidateExport(ExportOptions export)
     {
         var errors = new Dictionary<string, string[]>();

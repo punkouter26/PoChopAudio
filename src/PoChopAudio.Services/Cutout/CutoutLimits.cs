@@ -1,9 +1,9 @@
-namespace PoChopAudio.Shared;
+namespace PoChopAudio.Services.Cutout;
 
-/// <summary>Bounds both ends of the wire enforce, so the UI never offers what the API will reject.</summary>
+/// <summary>Bounds the UI and the service both hold to, so the picker never offers what cutout will reject.</summary>
 public static class CutoutLimits
 {
-    /// <summary>Largest image the API will accept. Larger JPEGs from phones are the common case.</summary>
+    /// <summary>Largest image the service will accept. Larger JPEGs from phones are the common case.</summary>
     public const long MaxUploadBytes = 50L * 1024 * 1024;
 
     /// <summary>Most images one batch may hold.</summary>
@@ -26,17 +26,11 @@ public static class CutoutLimits
 
     /// <summary>Default alpha multiplier for alpha matting.</summary>
     public const double DefaultAlphaMultiplier = 1.0;
-
-    /// <summary>File extensions the API will decode. Public so the diagnostics endpoint can list them.</summary>
-    public static readonly string[] AcceptedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
 }
 
-/// <summary>Which background-removal engine the API should run.</summary>
+/// <summary>Which background-removal engine to run.</summary>
 public enum CutoutEngine
 {
-    /// <summary>Microsoft.ML.OnnxRuntime + u2netp.onnx, runs in-process. Default.</summary>
+    /// <summary>Microsoft.ML.OnnxRuntime + u2netp.onnx, runs in-process. The only engine.</summary>
     OnnxU2Net = 0,
-
-    /// <summary>Browser-side onnxruntime-web. The server never sees raw pixels.</summary>
-    BrowserOnnx = 1,
 }

@@ -9,10 +9,9 @@ namespace PoChopAudio.WinUI.Services;
 /// Face detection through <see cref="FaceDetector"/>, which ships with Windows.
 ///
 /// <para>
-/// This is why option 4 costs nothing to ship: the OS already has a face detector, so there is no
-/// second ONNX model to download, no extra package, and no startup cost beyond one call. The
-/// "no second model" rule in <see cref="HeadFinder"/> is about not adding a dependency, and this
-/// adds none.
+/// This costs nothing to ship: the OS already has a face detector, so there is no second ONNX
+/// model to download and no extra package. The "no second model" rule in
+/// <see cref="HeadFinder"/> is about not adding a dependency, and this adds none.
 /// </para>
 /// <para>
 /// Follows the optional-capability pattern: probe once, report through
@@ -21,28 +20,67 @@ namespace PoChopAudio.WinUI.Services;
 /// </summary>
 public sealed class WindowsFaceLocator : IFaceLocator
 {
-    private readonly Lazy<FaceDetector?> _detector = new(() =>
+    /// <summary>
+    /// The detector, created once and awaited rather than blocked on.
+    ///
+    /// <para>
+    /// This used to be a <c>Lazy&lt;FaceDetector?&gt;</c> that called
+    /// <c>CreateAsync().GetAwaiter().GetResult()</c>. That runs on whichever thread asks first,
+    /// which for the cutout path is the UI thread, and blocking it on a WinRT async operation is
+    /// how a window stops repainting. Caching the Task instead means the construction happens once
+    /// and every caller awaits the same one.
+    /// </para>
+    /// </summary>
+    private readonly Lazy<Task<FaceDetector?>> _detector = new(CreateDetectorAsync);
+
+    /// <summary>
+    /// Whether the OS ships the component at all. Deliberately a cheap static check rather than
+    /// "did construction succeed": the diagnostics page reads this, and a property getter is no
+    /// place to wait on a device to spin up. A detector that fails to construct still degrades
+    /// correctly, because <see cref="LocateAsync"/> returns null when it has none.
+    /// </summary>
+    public bool IsAvailable
+    {
+        get
+        {
+            try
+            {
+                return FaceDetector.IsSupported;
+            }
+            catch (Exception)
+            {
+                // A machine without the face-analysis component is a supported configuration.
+                return false;
+            }
+        }
+    }
+
+    private static async Task<FaceDetector?> CreateDetectorAsync()
     {
         try
         {
-            return FaceDetector.IsSupported ? FaceDetector.CreateAsync().GetAwaiter().GetResult() : null;
+            return FaceDetector.IsSupported
+                ? await FaceDetector.CreateAsync().AsTask().ConfigureAwait(false)
+                : null;
         }
         catch (Exception)
         {
-            // A machine without the face-analysis component is a supported configuration.
             return null;
         }
-    });
-
-    public bool IsAvailable => _detector.Value is not null;
+    }
 
     public async Task<FaceBox?> LocateAsync(
         byte[] rgba, int width, int height, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rgba);
 
-        var detector = _detector.Value;
-        if (detector is null || width <= 0 || height <= 0)
+        if (width <= 0 || height <= 0)
+        {
+            return null;
+        }
+
+        var detector = await _detector.Value.ConfigureAwait(false);
+        if (detector is null)
         {
             return null;
         }

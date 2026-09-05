@@ -7,17 +7,6 @@ namespace PoChopAudio.Unit;
 public sealed class ImageDecoderTests
 {
     [Fact]
-    public void IsAcceptedContentTypeMatchesCommonImageMimeTypes()
-    {
-        Assert.True(ImageDecoder.IsAcceptedContentType("image/jpeg"));
-        Assert.True(ImageDecoder.IsAcceptedContentType("image/png"));
-        Assert.True(ImageDecoder.IsAcceptedContentType("image/webp"));
-        Assert.True(ImageDecoder.IsAcceptedContentType("image/jpeg; charset=binary"));
-        Assert.False(ImageDecoder.IsAcceptedContentType("application/json"));
-        Assert.False(ImageDecoder.IsAcceptedContentType(""));
-    }
-
-    [Fact]
     public void DetectMotionPhotoIsFalseForOrdinaryJpeg()
     {
         var bytes = RenderJpeg(width: 16, height: 16, fillAlpha: 255);
@@ -91,28 +80,6 @@ public sealed class ImageDecoderTests
         Assert.True(decoded.WasMotionPhoto);
         Assert.Equal(4, decoded.Width);
         Assert.Equal(4, decoded.Height);
-    }
-
-    [Fact]
-    public void EncodePngProducesValidPngHeader()
-    {
-        var rgba = new byte[4 * 4 * 4];
-        for (var i = 0; i < rgba.Length; i += 4)
-        {
-            rgba[i + 0] = 200;
-            rgba[i + 1] = 100;
-            rgba[i + 2] = 50;
-            rgba[i + 3] = 255;
-        }
-
-        var png = ImageDecoder.EncodePng(rgba, 4, 4);
-
-        // PNG signature is 8 bytes: 89 50 4E 47 0D 0A 1A 0A.
-        Assert.True(png.Length > 8);
-        Assert.Equal(0x89, png[0]);
-        Assert.Equal(0x50, png[1]);
-        Assert.Equal(0x4E, png[2]);
-        Assert.Equal(0x47, png[3]);
     }
 
     private static byte[] RenderJpeg(int width, int height, byte fillAlpha)

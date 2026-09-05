@@ -6,6 +6,13 @@ namespace PoChopAudio.WinUI.Models;
 /// <summary>One photo taken on this page, and the cutout made from it.</summary>
 public partial class CutoutFileItem : ObservableObject
 {
+    /// <summary>
+    /// The view model this card belongs to, so the Save button inside its DataTemplate can reach
+    /// the command with a compiled binding. A DataTemplate has its own namescope, so an
+    /// ElementName binding out to the page would resolve to nothing at all.
+    /// </summary>
+    public ViewModels.CutoutViewModel? Owner { get; init; }
+
     [ObservableProperty]
     private string _fileName = string.Empty;
 

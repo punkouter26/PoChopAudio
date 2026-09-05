@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using NAudio.Wave;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Services.Chop;
 

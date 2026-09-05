@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml;
 using PoChopAudio.Services.Chop;
 using PoChopAudio.Services.Cutout;
 using PoChopAudio.Services.Cutout.Engines;
-using PoChopAudio.Shared;
 using PoChopAudio.WinUI.Services;
 using PoChopAudio.WinUI.ViewModels;
 
@@ -27,6 +26,47 @@ public partial class App : Application
     {
         InitializeComponent();
         ConfigureServices();
+
+        // There is no console and the log was the only window into this app - except that nothing
+        // wrote to it when the process died. A stowed WinRT failure (0xC000027B) took the whole
+        // app down leaving an empty log and a WER bucket, which is the worst of both worlds.
+        UnhandledException += (_, e) =>
+        {
+            LogFatal("XAML", e.Exception);
+            e.Handled = false;
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            LogFatal("AppDomain", e.ExceptionObject as Exception);
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            LogFatal("Task", e.Exception);
+            e.SetObserved();
+        };
+    }
+
+    /// <summary>
+    /// Writes a crash straight to the log file. Deliberately not routed through ILogger: by the
+    /// time these fire the provider may already be gone, and a failed log line during a crash
+    /// would hide the crash it was trying to record.
+    /// </summary>
+    private static void LogFatal(string source, Exception? exception)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PoChopAudio", "logs");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(
+                Path.Combine(dir, "pochopaudio.log"),
+                $"{DateTime.Now:HH:mm:ss.fff} FATAL [{source}] {exception}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Nothing useful is left to do if even this fails.
+        }
     }
 
     private void ConfigureServices()
@@ -71,6 +111,7 @@ public partial class App : Application
         services.AddSingleton<ExportService>();
 
         // ViewModels
+        services.AddTransient<RecordingViewModel>();
         services.AddTransient<ChopViewModel>();
         services.AddTransient<CutoutViewModel>();
         services.AddTransient<SettingsViewModel>();

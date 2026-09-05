@@ -1,17 +1,27 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using PoChopAudio.Shared;
+using PoChopAudio.Services.Chop;
 using PoChopAudio.WinUI.Common;
-using PoChopAudio.WinUI.Controls;
-using PoChopAudio.WinUI.Services;
 using PoChopAudio.WinUI.Models;
+using PoChopAudio.WinUI.Services;
 using PoChopAudio.WinUI.ViewModels;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace PoChopAudio.WinUI.Views;
 
+/// <summary>
+/// The chop page.
+///
+/// <para>
+/// Every button here binds a command. The page used to answer half of them with <c>async void</c>
+/// Click handlers instead, which swallowed any exception thrown past the first <c>await</c> and
+/// bypassed the commands' own CanExecute — so the same button was guarded on one code path and
+/// unguarded on the other. What is left in this file is the work XAML genuinely cannot express:
+/// drag-and-drop, the accessibility wiring, and the two Win2D surfaces that are driven imperatively.
+/// </para>
+/// </summary>
 public sealed partial class ChopPage : Page
 {
     public ChopViewModel ViewModel { get; }
@@ -24,40 +34,53 @@ public sealed partial class ChopPage : Page
         Unloaded += OnUnloaded;
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e)
+    private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // App.MainWindow does not exist while the page is being constructed — the frame navigates
+        // here from the window's own constructor — so the pickers' owner is wired up on load.
+        ViewModel.Host = App.MainWindow;
+
+        // A screen reader otherwise announces "Start recording, disabled" and stops there: the
+        // sentence saying what to do about it is a sibling TextBlock it would never reach.
+        var describedBy = AutomationProperties.GetDescribedBy(RecordBtn);
+        if (!describedBy.Contains(RecordDisabledReason))
+        {
+            describedBy.Add(RecordDisabledReason);
+        }
+
         // InputScopeView is driven imperatively rather than by binding: it paints a scrolling trace,
         // a peak-hold marker and a numeric readout from two different feeds - level figures on the
-        // view model, and raw decimated samples straight off the capture thread.
-        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        // recording view model, and raw decimated samples straight off the capture thread.
+        ViewModel.Recording.PropertyChanged += OnRecordingPropertyChanged;
         ViewModel.BatchCompleted += OnBatchCompleted;
         App.GetService<AudioRecorderService>().ScopeSamplesAvailable += OnScopeSamples;
-        await ViewModel.InitializeAsync();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        ViewModel.Recording.PropertyChanged -= OnRecordingPropertyChanged;
         ViewModel.BatchCompleted -= OnBatchCompleted;
         App.GetService<AudioRecorderService>().ScopeSamplesAvailable -= OnScopeSamples;
     }
 
-    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnRecordingPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        var recording = ViewModel.Recording;
+
         switch (e.PropertyName)
         {
-            case nameof(ChopViewModel.PeakDb):
-            case nameof(ChopViewModel.RmsDb):
-            case nameof(ChopViewModel.IsClipping):
-                MicScope.UpdateLevel(ViewModel.PeakDb, ViewModel.RmsDb, ViewModel.IsClipping);
+            case nameof(RecordingViewModel.PeakDb):
+            case nameof(RecordingViewModel.RmsDb):
+            case nameof(RecordingViewModel.IsClipping):
+                MicScope.UpdateLevel(recording.PeakDb, recording.RmsDb, recording.IsClipping);
                 break;
 
-            case nameof(ChopViewModel.IsRecording):
+            case nameof(RecordingViewModel.IsRecording):
                 // Confetti while the microphone is open would be CPU taken from the capture path,
                 // which shows up as dropped frames in someone's take.
-                Confetti.IsSuppressed = ViewModel.IsRecording;
+                Confetti.IsSuppressed = recording.IsRecording;
 
-                if (!ViewModel.IsRecording)
+                if (!recording.IsRecording)
                 {
                     MicScope.Reset();
                 }
@@ -86,29 +109,50 @@ public sealed partial class ChopPage : Page
         }
     }
 
-    private async void OnToggleSpectrogramClicked(object sender, RoutedEventArgs e)
+    private void OnWaveformScrubbed(ChopFileItem item, double seconds) => ViewModel.Seek(item, seconds);
+
+    /// <summary>
+    /// A click on the waveform itself. Routed through the same commands the buttons use, so a
+    /// failure surfaces the same way whichever way the take was started.
+    /// </summary>
+    private void OnWaveformSegmentClicked(ChopFileItem item, ChopSegment? segment)
     {
-        if (sender is Button { DataContext: ChopFileItem item })
+        if (segment is null)
         {
-            Motion.Pulse((Button)sender);
-            await ViewModel.ToggleSpectrogramAsync(item);
+            ViewModel.PlayWholeRecordingCommand.Execute(item);
+        }
+        else
+        {
+            ViewModel.PlaySegmentCommand.Execute(segment);
         }
     }
 
-    private void OnWaveformScrubbed(ChopFileItem item, double seconds)
+    /// <summary>
+    /// The two buttons on a take row.
+    ///
+    /// <para>
+    /// Every other button on this page binds its command. These cannot: they live in a nested
+    /// DataTemplate whose item is a <see cref="ChopSegment"/> — a record in Services with no route
+    /// back to the view model — and a DataTemplate's own namescope means an ElementName binding out
+    /// to the page resolves to nothing. A plain void handler that executes the same command the
+    /// rest of the page binds is the honest version: no async void, and the command's own error
+    /// handling still applies.
+    /// </para>
+    /// </summary>
+    private void OnPlaySegmentClicked(object sender, RoutedEventArgs e)
     {
-        ViewModel.Seek(item, seconds);
+        if (sender is FrameworkElement { DataContext: ChopSegment segment })
+        {
+            ViewModel.PlaySegmentCommand.Execute(segment);
+        }
     }
 
-    public int ExportNormalizeIndex
+    private void OnSaveSegmentClicked(object sender, RoutedEventArgs e)
     {
-        get => (int)ViewModel.ExportKnobs.Normalize;
-        set => ViewModel.ExportKnobs.Normalize = (NormalizeMode)value;
-    }
-
-    private async void OnBrowseFilesClicked(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.PickFilesAsync(App.MainWindow);
+        if (sender is FrameworkElement { DataContext: ChopSegment segment })
+        {
+            ViewModel.SaveSegmentCommand.Execute(segment);
+        }
     }
 
     private void OnDragOver(object sender, DragEventArgs e)
@@ -120,72 +164,24 @@ public sealed partial class ChopPage : Page
 
     private async void OnDrop(object sender, DragEventArgs e)
     {
-        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+        // Drop has no command equivalent: the paths only exist inside the event args. Everything
+        // inside is guarded, because an exception escaping an async void handler reaches the
+        // runtime's unhandled hook and takes the process down.
+        try
         {
-            var items = await e.DataView.GetStorageItemsAsync();
-            var paths = items.Select(i => i.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
-            if (paths.Count > 0)
+            if (e.DataView.Contains(StandardDataFormats.StorageItems))
             {
-                await ViewModel.AddFilesAsync(paths);
+                var items = await e.DataView.GetStorageItemsAsync();
+                var paths = items.Select(i => i.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
+                if (paths.Count > 0)
+                {
+                    await ViewModel.AddFilesAsync(paths);
+                }
             }
         }
-    }
-
-    private async void OnSaveAllToFolderClicked(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.SaveAllToFolderAsync(App.MainWindow);
-    }
-
-    private async void OnExportBatchZipClicked(object sender, RoutedEventArgs e)
-    {
-        await ViewModel.ExportBatchZipAsync(App.MainWindow);
-    }
-
-    private async void OnPlayOriginalClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: ChopFileItem item })
+        catch (Exception exception)
         {
-            await ViewModel.PlayTakeAsync(item, null);
-        }
-    }
-
-    private async void OnWaveformSegmentClicked(ChopFileItem item, ChopSegment? segment)
-    {
-        await ViewModel.PlayTakeAsync(item, segment);
-    }
-
-    private async void OnResplitSingleFileClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: ChopFileItem item })
-        {
-            item.UsesOwnSettings = true;
-            await ViewModel.ResplitOneAsync(item);
-        }
-    }
-
-    private async void OnPlayTakeItemClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: ChopSegment segment })
-        {
-            // Find parent item
-            var parentItem = ViewModel.Files.FirstOrDefault(f => f.Segments.Contains(segment));
-            if (parentItem is not null)
-            {
-                await ViewModel.PlayTakeAsync(parentItem, segment);
-            }
-        }
-    }
-
-    private async void OnSaveTakeItemClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: ChopSegment segment })
-        {
-            var parentItem = ViewModel.Files.FirstOrDefault(f => f.Segments.Contains(segment));
-            if (parentItem is not null)
-            {
-                await ViewModel.SaveTakeClipAsync((parentItem, segment, App.MainWindow));
-            }
+            ViewModel.ErrorMessage = $"Could not add the dropped files: {exception.Message}";
         }
     }
 }
-

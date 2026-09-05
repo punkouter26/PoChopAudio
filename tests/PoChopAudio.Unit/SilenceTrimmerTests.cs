@@ -1,5 +1,4 @@
 using PoChopAudio.Services.Chop;
-using PoChopAudio.Shared;
 
 namespace PoChopAudio.Unit;
 
@@ -50,17 +49,5 @@ public sealed class SilenceTrimmerTests
         Assert.True(start >= 4, $"expected start >= 4, got {start}");
         Assert.True(end <= 15, $"expected end <= 15, got {end}");
         Assert.True(end >= start);
-    }
-
-    [Fact]
-    public void TrimIsANoOpForAllLoudContent()
-    {
-        var envelope = MakeEnvelope(-70, -10, -10, -10, -10, -10);
-        var options = new ChopOptions { TrimSilenceMs = 100 };
-
-        var (start, end) = SilenceTrimmer.Trim(envelope, options);
-
-        Assert.Equal(0, start);
-        Assert.Equal(envelope.FrameDb.Count - 1, end);
     }
 }

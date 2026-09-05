@@ -30,6 +30,15 @@ public sealed partial class ShaderBackdrop : UserControl
     private bool _ticking;
     private DateTimeOffset _started = DateTimeOffset.UtcNow;
 
+    /// <summary>
+    /// Whether <see cref="OnUnloaded"/> has torn the Win2D resources down. Loaded and Unloaded were
+    /// not a pair: Unloaded disposed the effect and pulled the surface out of the visual tree, and
+    /// Loaded rebuilt neither. Anything that re-parented this control - which XAML is free to do -
+    /// would come back to a disposed effect and die with RO_E_CLOSED, the same way the Cutout page
+    /// did. Nothing re-parents it today; this makes that not matter.
+    /// </summary>
+    private bool _torndown;
+
     public ShaderBackdrop()
     {
         InitializeComponent();
@@ -54,6 +63,13 @@ public sealed partial class ShaderBackdrop : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_torndown)
+        {
+            // Reloaded after a teardown. The effect cannot be revived, so there is nothing to draw
+            // and nothing to animate; staying silently blank beats faulting the process.
+            return;
+        }
+
         _started = DateTimeOffset.UtcNow;
         CaptureUiState();
         ApplyRunState();
@@ -61,6 +77,12 @@ public sealed partial class ShaderBackdrop : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        if (_torndown)
+        {
+            return;
+        }
+
+        _torndown = true;
         StopTicking();
 
         // Win2D holds a device per control; without this it is released only whenever the finalizer

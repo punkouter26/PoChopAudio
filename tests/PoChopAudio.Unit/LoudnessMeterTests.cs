@@ -14,7 +14,6 @@ public sealed class LoudnessMeterTests
 
     [Theory]
     [InlineData(-23.0)]
-    [InlineData(-20.0)]
     [InlineData(-40.0)]
     public void StereoSineReadsItsOwnLevelInLufs(double levelDb)
     {

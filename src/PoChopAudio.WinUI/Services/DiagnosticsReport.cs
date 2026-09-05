@@ -7,7 +7,6 @@ using Microsoft.UI.Composition.SystemBackdrops;
 using NAudio.Wave;
 using PoChopAudio.Services.Chop;
 using PoChopAudio.Services.Cutout;
-using PoChopAudio.Shared;
 using Windows.Media.Capture.Frames;
 
 namespace PoChopAudio.WinUI.Services;
@@ -150,7 +149,7 @@ public static class DiagnosticsReport
 
         var items = new List<DiagnosticItem>
         {
-            new("Decodes", string.Join(", ", CutoutLimits.AcceptedExtensions), DiagnosticState.Good),
+            new("Decodes", string.Join(", ", ImageDecoder.SupportedExtensions), DiagnosticState.Good),
             new(
                 "Background removal",
                 cutout.IsAvailable
@@ -194,7 +193,7 @@ public static class DiagnosticsReport
     [
         new DiagnosticItem("Scratch folder", ChopJobStore.ParentRoot),
         new DiagnosticItem("Scratch in use", FormatBytes(ChopJobStore.ScratchBytes())),
-        new DiagnosticItem("Open recordings", $"{jobs.Count}, each expiring after {ChopJobStore.Lifetime.TotalHours:0} h"),
+        new DiagnosticItem("Open recordings", $"{jobs.Count}, held until cleared or the app closes"),
         new DiagnosticItem("Log file", log.LogFilePath),
         new DiagnosticItem("Settings file", settings.Exists ? settings.FilePath : $"{settings.FilePath} — not written yet"),
     ];

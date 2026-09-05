@@ -8,8 +8,5 @@
     <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\PoChopAudio.Shared\PoChopAudio.Shared.csproj" />
-  </ItemGroup>
 
 </Project>

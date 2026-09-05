@@ -15,16 +15,16 @@
             <Border x:Name="ClipBadge"
                     Visibility="Collapsed" IsHitTestVisible="False"
                     HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6"
-                    Background="#DC2626" CornerRadius="3" Padding="5,1"
+                    Background="{ThemeResource DangerFillBrush}" CornerRadius="3" Padding="5,1"
                     AutomationProperties.Name="Input is clipping"
                     AutomationProperties.LiveSetting="Assertive">
-                <TextBlock Text="CLIP" FontSize="10" FontWeight="Bold" Foreground="White" />
+                <TextBlock Text="CLIP" Style="{ThemeResource CaptionTextBlockStyle}" FontWeight="Bold" Foreground="{ThemeResource OnDangerFillBrush}" />
             </Border>
 
             <TextBlock x:Name="IdleText"
                        Text="Waiting for input…"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                       FontSize="11" IsHitTestVisible="False"
+                       Style="{ThemeResource CaptionTextBlockStyle}" IsHitTestVisible="False"
                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
         </Grid>
     </Border>

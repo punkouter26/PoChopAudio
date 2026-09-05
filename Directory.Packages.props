@@ -5,13 +5,6 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
-  <ItemGroup Label="Transitive pins">
-    <!-- Microsoft.AspNetCore.OpenApi 10.0.9 pulls Microsoft.OpenApi 2.0.0 (GHSA-v5pm-xwqc-g5wc). -->
-  </ItemGroup>
-
-  <ItemGroup Label="Runtime">
-  </ItemGroup>
-
   <ItemGroup Label="Shared services">
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.9" />

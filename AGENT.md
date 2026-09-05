@@ -55,7 +55,7 @@ src/PoChopAudio.WinUI/        The app. Unpackaged, self-contained Windows App SD
   Controls/WrapPanel          WinUI 3 ships none; the knob row needed one
   Controls/WaveformView       Win2D: segment bands, amplitude trace or spectrogram, compositor playhead
   Controls/InputScopeView     Win2D rolling scope with peak-hold ballistics
-  Controls/BeforeAfterView    Win2D: checkerboard, edge outline, draggable wipe
+  Controls/CutoutPreview      Win2D: the cut-out on a checkerboard, with an edge outline
   Controls/ShaderBackdrop     Runs AuroraShader behind a page
   Controls/ParticleBurst      Draws ParticleField; idle unless something is alive
   Shaders/AuroraShader        HLSL mesh gradient, compiled by ComputeSharp at build time
@@ -171,6 +171,19 @@ was deleted.
 
 The preview is mirrored so lining a shot up feels like a mirror; the captured frame is deliberately
 *not* flipped, because saving the mirror would hand back a reversed photograph.
+
+`CutoutPreview` draws each result on a **checkerboard**, which is the whole reason it is a Win2D
+surface rather than an `Image`. A flat backdrop makes a translucent edge look identical to an opaque
+one, so feather 0 and feather 2 were indistinguishable and the fine-tune sliders were being adjusted
+blind. The **Edge** toggle runs a Sobel pass over the cut-out's alpha and tints it, which says
+exactly where the mask boundary landed.
+
+It was `BeforeAfterView`, and it also carried a draggable wipe between the original photo and the
+cut-out. That went: the checkerboard and the edge outline answer "is this mask right", which is the
+question being asked, and the wipe answered "what did the photo look like before" — which the user
+had just seen in the viewfinder. It cost a second full-size Win2D bitmap per card in a virtualizing
+list to do it. The original bytes are still held on the item, because re-applying the knobs re-cuts
+from the frame as captured rather than compounding the previous result.
 
 ## Export polish
 
@@ -363,8 +376,8 @@ and `TextBlock` per segment, cleared and rebuilt on every resize and every re-sp
 screen put several thousand live elements in the visual tree to show a picture that is not
 interactive at the element level and never needed to be. It is now a single `CanvasControl`.
 
-That change is what made the rest possible: a spectrogram, a wipe slider and an edge-detection
-outline are all trivial once there is a drawing surface, and all impossible on a pile of `Line`s.
+That change is what made the rest possible: a spectrogram and an edge-detection outline are both
+trivial once there is a drawing surface, and both impossible on a pile of `Line`s.
 
 ### The spectrogram
 
@@ -425,7 +438,7 @@ Reworked in one pass; the parts that are not obvious from the XAML:
   fresh one, a visible second of black viewfinder for nothing.
 - **The card lists are `ItemsRepeater`.** `ItemsControl` has no virtualizing panel, so every card was
   realized at once and each one owns a live Direct2D surface. This has a hard prerequisite:
-  **`WaveformView` and `BeforeAfterView` create their `CanvasControl` in `Loaded`, not in XAML.**
+  **`WaveformView` and `CutoutPreview` create their `CanvasControl` in `Loaded`, not in XAML.**
   Releasing a surface calls `RemoveFromVisualTree`, which is permanent, and a recycled element is
   unloaded and then shown again against different data — so re-entering the tree has to build a new
   one. See `EnsureSurface` in both.

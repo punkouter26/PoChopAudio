@@ -5,7 +5,6 @@ using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using PoChopAudio.WinUI.Models;
 using Windows.Foundation;
 using Windows.UI;
@@ -13,50 +12,45 @@ using Windows.UI;
 namespace PoChopAudio.WinUI.Controls;
 
 /// <summary>
-/// Before and after for one cut-out photo, on a checkerboard, with an optional edge outline and a
-/// draggable wipe.
+/// One cut-out photo on a checkerboard, with an optional edge outline.
 ///
 /// <para>
-/// The previous version showed two static panes side by side on a flat dark panel. That hid the
-/// only thing the fine-tune sliders actually change: a flat backdrop makes a translucent edge look
-/// identical to an opaque one, so "feather 2" and "feather 0" were indistinguishable and the
-/// sliders were being adjusted blind. A checkerboard shows alpha, and the edge outline shows
+/// The checkerboard is the point. An earlier version showed the cutout on a flat dark panel, which
+/// hid the only thing the fine-tune sliders actually change: a flat backdrop makes a translucent
+/// edge look identical to an opaque one, so "feather 2" and "feather 0" were indistinguishable and
+/// the sliders were being adjusted blind. A checkerboard shows alpha, and the edge outline shows
 /// exactly where the mask boundary ended up.
 /// </para>
+/// <para>
+/// This was <c>BeforeAfterView</c> and carried a draggable wipe between the original photo and the
+/// cut-out. The wipe is gone, and with it the reason to decode the original into a second Win2D
+/// bitmap per card — the original bytes are still kept on the item, because re-applying the knobs
+/// re-cuts from them rather than compounding the previous result.
+/// </para>
 /// </summary>
-public sealed partial class BeforeAfterView : UserControl
+public sealed partial class CutoutPreview : UserControl
 {
     private const float CheckerSize = 10f;
 
     private static readonly Color CheckerLight = Color.FromArgb(255, 62, 68, 80);
     private static readonly Color CheckerDark = Color.FromArgb(255, 48, 54, 64);
-    private static readonly Color DividerColor = Color.FromArgb(255, 226, 232, 240);
     private static readonly Color EdgeGlowColor = Color.FromArgb(255, 250, 204, 21);
 
     private CutoutFileItem? _item;
     private CanvasControl? _surface;
-    private CanvasBitmap? _original;
     private CanvasBitmap? _cutout;
 
-    /// <summary>Where the wipe divider sits, 0..1 across the control.</summary>
-    private float _split = 0.5f;
-    private bool _isDragging;
-
-    public BeforeAfterView()
+    public CutoutPreview()
     {
         InitializeComponent();
-
-        RootContainer.PointerPressed += OnPointerPressed;
-        RootContainer.PointerMoved += OnPointerMoved;
-        RootContainer.PointerReleased += OnPointerReleased;
 
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
 
     public static readonly DependencyProperty ItemProperty =
-        DependencyProperty.Register(nameof(Item), typeof(CutoutFileItem), typeof(BeforeAfterView),
-            new PropertyMetadata(null, (d, e) => ((BeforeAfterView)d).OnItemChanged(e.NewValue as CutoutFileItem)));
+        DependencyProperty.Register(nameof(Item), typeof(CutoutFileItem), typeof(CutoutPreview),
+            new PropertyMetadata(null, (d, e) => ((CutoutPreview)d).OnItemChanged(e.NewValue as CutoutFileItem)));
 
     public CutoutFileItem? Item
     {
@@ -67,7 +61,7 @@ public sealed partial class BeforeAfterView : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         EnsureSurface();
-        _ = ReloadBitmapsAsync();
+        _ = ReloadBitmapAsync();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -77,7 +71,7 @@ public sealed partial class BeforeAfterView : UserControl
             _item.PropertyChanged -= OnItemPropertyChanged;
         }
 
-        DisposeBitmaps();
+        DisposeBitmap();
         ReleaseSurface();
     }
 
@@ -100,7 +94,7 @@ public sealed partial class BeforeAfterView : UserControl
         _surface = new CanvasControl { ClearColor = Colors.Transparent };
         _surface.Draw += OnDraw;
 
-        // Index 0: the labels and the toggle row are overlays and have to stay above the drawing.
+        // Index 0: the label and the toggle are overlays and have to stay above the drawing.
         RootContainer.Children.Insert(0, _surface);
     }
 
@@ -130,27 +124,27 @@ public sealed partial class BeforeAfterView : UserControl
             _item.PropertyChanged += OnItemPropertyChanged;
         }
 
-        _ = ReloadBitmapsAsync();
+        _ = ReloadBitmapAsync();
     }
 
     private void OnItemPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(CutoutFileItem.Status) or nameof(CutoutFileItem.CutoutImage))
         {
-            DispatcherQueue.TryEnqueue(() => _ = ReloadBitmapsAsync());
+            DispatcherQueue.TryEnqueue(() => _ = ReloadBitmapAsync());
         }
     }
 
     private void OnRedrawRequested(object sender, RoutedEventArgs e) => _surface?.Invalidate();
 
     /// <summary>
-    /// Decodes both PNGs into Win2D bitmaps. Works from the byte arrays the item already holds
-    /// rather than the <c>BitmapImage</c> thumbnails, because a XAML image source cannot be handed
-    /// to a drawing session and re-encoding one to get at its pixels would be absurd.
+    /// Decodes the cut-out PNG into a Win2D bitmap. Works from the byte array the item already
+    /// holds rather than the <c>BitmapImage</c> thumbnail, because a XAML image source cannot be
+    /// handed to a drawing session and re-encoding one to get at its pixels would be absurd.
     /// </summary>
-    private async Task ReloadBitmapsAsync()
+    private async Task ReloadBitmapAsync()
     {
-        DisposeBitmaps();
+        DisposeBitmap();
 
         if (_item is null)
         {
@@ -160,32 +154,21 @@ public sealed partial class BeforeAfterView : UserControl
 
         try
         {
-            var device = CanvasDevice.GetSharedDevice();
-
-            if (_item.OriginalPngBytes is { Length: > 0 } originalBytes)
-            {
-                _original = await LoadAsync(device, originalBytes);
-            }
-
             if (_item.CutoutPngBytes is { Length: > 0 } cutoutBytes)
             {
-                _cutout = await LoadAsync(device, cutoutBytes);
+                using var stream = new MemoryStream(cutoutBytes);
+                _cutout = await CanvasBitmap.LoadAsync(
+                    CanvasDevice.GetSharedDevice(), stream.AsRandomAccessStream());
             }
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // A preview that will not decode is not worth an error banner; the card already shows
             // the item's own failure state if the cutout itself failed.
-            DisposeBitmaps();
+            DisposeBitmap();
         }
 
         _surface?.Invalidate();
-    }
-
-    private static async Task<CanvasBitmap> LoadAsync(CanvasDevice device, byte[] png)
-    {
-        using var stream = new MemoryStream(png);
-        return await CanvasBitmap.LoadAsync(device, stream.AsRandomAccessStream());
     }
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -201,32 +184,21 @@ public sealed partial class BeforeAfterView : UserControl
 
         DrawCheckerboard(session, width, height);
 
-        var split = SplitToggle.IsChecked == true;
-
-        if (split)
+        if (_cutout is null)
         {
-            DrawSplit(session, width, height);
-        }
-        else if (_cutout is not null)
-        {
-            session.DrawImage(_cutout, Fit(_cutout, width, height));
+            return;
         }
 
-        if (EdgeToggle.IsChecked == true && _cutout is not null)
-        {
-            DrawEdgeGlow(session, Fit(_cutout, width, height));
-        }
+        var destination = Fit(_cutout, width, height);
+        session.DrawImage(_cutout, destination);
 
-        if (split)
+        if (EdgeToggle.IsChecked == true)
         {
-            var x = _split * width;
-            session.DrawLine(x, 0, x, height, DividerColor, 2f);
-            session.FillCircle(x, height / 2f, 9f, DividerColor);
-            session.FillCircle(x, height / 2f, 6f, Color.FromArgb(255, 30, 41, 59));
+            DrawEdgeGlow(session, destination);
         }
     }
 
-    private void DrawCheckerboard(CanvasDrawingSession session, float width, float height)
+    private static void DrawCheckerboard(CanvasDrawingSession session, float width, float height)
     {
         for (var y = 0f; y < height; y += CheckerSize)
         {
@@ -234,30 +206,6 @@ public sealed partial class BeforeAfterView : UserControl
             {
                 var isLight = (int)((x / CheckerSize) + (y / CheckerSize)) % 2 == 0;
                 session.FillRectangle(x, y, CheckerSize, CheckerSize, isLight ? CheckerLight : CheckerDark);
-            }
-        }
-    }
-
-    private void DrawSplit(CanvasDrawingSession session, float width, float height)
-    {
-        var divider = _split * width;
-
-        // Left of the divider is the photo as taken, right of it is the cut-out. Clipping rather
-        // than drawing two scaled halves keeps both sides in the same place on screen, which is
-        // what makes the comparison meaningful.
-        if (_original is not null)
-        {
-            using (session.CreateLayer(1f, new Rect(0, 0, divider, height)))
-            {
-                session.DrawImage(_original, Fit(_original, width, height));
-            }
-        }
-
-        if (_cutout is not null)
-        {
-            using (session.CreateLayer(1f, new Rect(divider, 0, Math.Max(0, width - divider), height)))
-            {
-                session.DrawImage(_cutout, Fit(_cutout, width, height));
             }
         }
     }
@@ -317,48 +265,8 @@ public sealed partial class BeforeAfterView : UserControl
         return new Rect((width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
     }
 
-    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
+    private void DisposeBitmap()
     {
-        if (SplitToggle.IsChecked != true)
-        {
-            return;
-        }
-
-        _isDragging = true;
-        RootContainer.CapturePointer(e.Pointer);
-        UpdateSplit(e);
-    }
-
-    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
-    {
-        if (_isDragging)
-        {
-            UpdateSplit(e);
-        }
-    }
-
-    private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        if (!_isDragging)
-        {
-            return;
-        }
-
-        _isDragging = false;
-        RootContainer.ReleasePointerCapture(e.Pointer);
-    }
-
-    private void UpdateSplit(PointerRoutedEventArgs e)
-    {
-        var x = e.GetCurrentPoint(RootContainer).Position.X;
-        _split = (float)Math.Clamp(x / Math.Max(1.0, RootContainer.ActualWidth), 0.0, 1.0);
-        _surface?.Invalidate();
-    }
-
-    private void DisposeBitmaps()
-    {
-        _original?.Dispose();
-        _original = null;
         _cutout?.Dispose();
         _cutout = null;
     }

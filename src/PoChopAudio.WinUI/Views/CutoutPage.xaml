@@ -52,7 +52,7 @@
         <!--
             Rows in a Grid rather than a StackPanel, with the repeater in one of them, so the
             ItemsRepeater below actually virtualizes - a StackPanel measures at infinite height and
-            realizes every card, each of which owns a live Direct2D BeforeAfterView.
+            realizes every card, each of which owns a live Direct2D CutoutPreview.
 
             MaxWidth plus Center matches the Chop page. Stretch left this content hugging the left
             edge on a wide window while Chop centred its own, so the two pages did not line up.
@@ -283,10 +283,10 @@
                 </Grid>
 
                 <!--
-                    ItemsRepeater, not ItemsControl: every card carries a BeforeAfterView, which is a
+                    ItemsRepeater, not ItemsControl: every card carries a CutoutPreview, which is a
                     live Direct2D surface holding two decoded bitmaps. Realizing all of them at once
                     is the most expensive thing this page could do. See EnsureSurface in
-                    BeforeAfterView for what recycling required.
+                    CutoutPreview for what recycling required.
                 -->
                 <ItemsRepeater Grid.Row="5" ItemsSource="{x:Bind ViewModel.Files}">
                     <ItemsRepeater.Layout>
@@ -318,7 +318,7 @@
                                                 AutomationProperties.Name="{x:Bind FileName, Mode=OneWay, Converter={StaticResource RowLabel}, ConverterParameter=Save as a PNG:}" />
                                     </Grid>
 
-                                    <controls:BeforeAfterView Item="{x:Bind}" Loaded="OnCardVisualLoaded" />
+                                    <controls:CutoutPreview Item="{x:Bind}" Loaded="OnCardVisualLoaded" />
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
